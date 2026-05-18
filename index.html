@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLI Launchers — Smart Windows Launchers for AI Coding Assistants</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        header {
+            text-align: center;
+            padding: 60px 20px 40px;
+        }
+        header h1 {
+            font-size: 3rem;
+            color: #58a6ff;
+            margin-bottom: 10px;
+        }
+        header p {
+            font-size: 1.2rem;
+            color: #8b949e;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .tagline {
+            display: inline-block;
+            background: #238636;
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-top: 20px;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin: 40px 0;
+        }
+        @media (max-width: 700px) {
+            .cards { grid-template-columns: 1fr; }
+            header h1 { font-size: 2rem; }
+        }
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 28px;
+            transition: border-color 0.2s;
+        }
+        .card:hover {
+            border-color: #58a6ff;
+        }
+        .card h2 {
+            color: #fff;
+            font-size: 1.4rem;
+            margin-bottom: 10px;
+        }
+        .card .badge {
+            display: inline-block;
+            background: #1f6feb;
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            margin-bottom: 14px;
+        }
+        .card p {
+            color: #8b949e;
+            font-size: 0.95rem;
+            margin-bottom: 20px;
+        }
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #238636;
+            color: #fff;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: background 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        .download-btn:hover {
+            background: #2ea043;
+        }
+        .download-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+        .features {
+            margin: 40px 0;
+        }
+        .features h2 {
+            text-align: center;
+            color: #fff;
+            margin-bottom: 24px;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+        }
+        .feature {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        .feature h3 {
+            color: #58a6ff;
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+        .feature p {
+            color: #8b949e;
+            font-size: 0.9rem;
+        }
+        .howto {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 28px;
+            margin: 40px 0;
+        }
+        .howto h2 {
+            color: #fff;
+            margin-bottom: 16px;
+        }
+        .howto ol {
+            padding-left: 20px;
+            color: #c9d1d9;
+        }
+        .howto li {
+            margin-bottom: 10px;
+        }
+        .howto code {
+            background: #0d1117;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid #30363d;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+        }
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #484f58;
+            font-size: 0.9rem;
+        }
+        footer a {
+            color: #58a6ff;
+            text-decoration: none;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CLI Launchers</h1>
+            <p>Smart Windows batch launchers for AI coding assistants. One file. Zero setup hassle.</p>
+            <div class="tagline">✓ Auto-install · Auto-update · Model Picker · Ollama Ready</div>
+        </header>
+
+        <div class="cards">
+            <div class="card" id="download-codex">
+                <div class="badge">OpenAI Codex CLI</div>
+                <h2>Codex Launcher</h2>
+                <p>Launch Codex CLI through Ollama with your favorite model. Checks Node.js, Codex CLI, and Ollama. Auto-installs anything missing.</p>
+                <a class="download-btn" href="https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-Launcher.bat" download="Codex-Launcher.bat">
+                    <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                    Download .bat
+                </a>
+            </div>
+            <div class="card" id="download-claude">
+                <div class="badge">Anthropic Claude Code</div>
+                <h2>Claude + Ollama Launcher</h2>
+                <p>Launch Claude Code through Ollama. Checks Claude Code and Ollama installations. Auto-updates, model picker, and permission bypass toggle.</p>
+                <a class="download-btn" href="https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Claude-Ollama-Launcher.bat" download="Claude-Ollama-Launcher.bat">
+                    <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                    Download .bat
+                </a>
+            </div>
+        </div>
+
+        <div class="features">
+            <h2>What the launchers handle for you</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>🔍 Prerequisite Check</h3>
+                    <p>Detects Node.js, npm, Codex CLI / Claude Code, and Ollama. Tells you what is missing.</p>
+                </div>
+                <div class="feature">
+                    <h3>⬇️ Auto-Install</h3>
+                    <p>Missing Node.js? It installs it. Missing Ollama? It installs it. Missing the CLI? It installs it.</p>
+                </div>
+                <div class="feature">
+                    <h3>🔄 Update Checker</h3>
+                    <p>Checks npm and GitHub releases for newer versions. One menu press updates everything.</p>
+                </div>
+                <div class="feature">
+                    <h3>🤖 Model Picker</h3>
+                    <p>Browse the top 10 newest cloud models, browse your local models, or type one manually.</p>
+                </div>
+                <div class="feature">
+                    <h3>🔐 Auth Check</h3>
+                    <p>Verifies you are signed into Ollama (`ollama list`). Offers to run `ollama signin` if not.</p>
+                </div>
+                <div class="feature">
+                    <h3>🚀 One-Click Launch</h3>
+                    <p>Builds the right command and starts the Ollama server automatically if needed.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="howto">
+            <h2>How to use</h2>
+            <ol>
+                <li><strong>Download</strong> one of the <code>.bat</code> files above (right-click → Save As, or click the green button).</li>
+                <li><strong>Double-click</strong> the file or run it from Command Prompt / PowerShell.</li>
+                <li>The launcher shows a status screen and menu. Pick an option by typing the number and pressing <code>Enter</code>.</li>
+                <li>To <strong>launch directly</strong> without the menu, pass arguments:<br>
+                    <code>Codex-Launcher.bat launch --model kimi-k2.6:cloud -- --yolo</code><br>
+                    <code>Claude-Ollama-Launcher.bat launch --model ollama/llama3</code>
+                </li>
+            </ol>
+        </div>
+    </div>
+
+    <footer>
+        <p>Made for Windows PowerShell users who want AI CLI tools without the setup headache.</p>
+        <p>
+            <a href="https://github.com/jlaiii/cli-launchers">GitHub Repo</a> &middot;
+            <a href="https://github.com/jlaiii/cli-launchers/issues">Report an Issue</a>
+        </p>
+    </footer>
+</body>
+</html>
