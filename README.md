@@ -5,7 +5,7 @@ Smart Windows batch launchers for AI coding assistants. Download a single `.bat`
 ## Quick Start
 
 1. **Download** the launcher you want:
-   - [**Codex + Ollama**](https://jlaiii.github.io/cli-launchers/#download-codex) -- for OpenAI Codex CLI + Ollama
+   - [**Codex + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-codex) -- for OpenAI Codex CLI + Ollama
    - [**Claude + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-claude) -- for Claude Code + Ollama
 2. Double-click the `.bat` file (or run it from the terminal)
 3. Follow the on-screen menu -- install, update, pick a model, and launch
@@ -14,7 +14,7 @@ No PowerShell knowledge required. Everything is self-contained inside the `.bat`
 
 ---
 
-## Codex + Ollama
+## Codex + Ollama Launcher
 
 **What it does:**
 - Checks if Node.js / npm is installed (auto-installs via winget or MSI if missing)
