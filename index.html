@@ -3,187 +3,332 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CLI Launchers — Smart Windows Launchers for AI Coding Assistants</title>
+    <title>CLI Launchers &mdash; Smart Windows Launchers for AI Coding Assistants</title>
     <style>
+        :root {
+            --bg: #07080a;
+            --surface: rgba(13, 17, 23, 0.65);
+            --surface-solid: #0d1117;
+            --border: rgba(48, 54, 61, 0.6);
+            --text: #c9d1d9;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --accent-glow: rgba(88, 166, 255, 0.35);
+            --success: #2ea043;
+            --success-dim: rgba(46, 160, 67, 0.15);
+            --heading: #f0f6fc;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #0d1117;
-            color: #c9d1d9;
+            background: var(--bg);
+            color: var(--text);
             line-height: 1.6;
+            overflow-x: hidden;
         }
+
+        canvas#bg {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
         .container {
-            max-width: 900px;
+            position: relative;
+            z-index: 1;
+            max-width: 960px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 0 24px;
         }
+
         header {
             text-align: center;
-            padding: 60px 20px 40px;
+            padding: 100px 20px 60px;
+            animation: fadeUp 0.8s ease-out both;
         }
+
         header h1 {
-            font-size: 3rem;
-            color: #58a6ff;
-            margin-bottom: 10px;
+            font-size: 3.2rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--heading);
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #58a6ff 0%, #a371f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
+
         header p {
-            font-size: 1.2rem;
-            color: #8b949e;
-            max-width: 600px;
-            margin: 0 auto;
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 560px;
+            margin: 0 auto 24px;
+            line-height: 1.5;
         }
+
         .tagline {
             display: inline-block;
-            background: #238636;
-            color: #fff;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            margin-top: 20px;
+            background: var(--success-dim);
+            color: var(--success);
+            padding: 8px 18px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            border: 1px solid rgba(46, 160, 67, 0.25);
         }
+
         .cards {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 24px;
             margin: 40px 0;
+            animation: fadeUp 0.9s ease-out 0.15s both;
         }
-        @media (max-width: 700px) {
+
+        @media (max-width: 720px) {
             .cards { grid-template-columns: 1fr; }
-            header h1 { font-size: 2rem; }
+            header h1 { font-size: 2.2rem; }
+            header { padding-top: 60px; }
         }
+
         .card {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 12px;
-            padding: 28px;
-            transition: border-color 0.2s;
+            background: var(--surface);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), #a371f7);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
         .card:hover {
-            border-color: #58a6ff;
+            transform: translateY(-4px);
+            border-color: rgba(88, 166, 255, 0.4);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.35), 0 0 20px var(--accent-glow);
         }
-        .card h2 {
-            color: #fff;
-            font-size: 1.4rem;
-            margin-bottom: 10px;
-        }
+
+        .card:hover::before { opacity: 1; }
+
         .card .badge {
             display: inline-block;
-            background: #1f6feb;
-            color: #fff;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            margin-bottom: 14px;
+            background: rgba(31, 111, 235, 0.15);
+            color: var(--accent);
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 16px;
+            border: 1px solid rgba(31, 111, 235, 0.2);
         }
+
+        .card h2 {
+            color: var(--heading);
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
         .card p {
-            color: #8b949e;
+            color: var(--text-muted);
             font-size: 0.95rem;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
+            line-height: 1.55;
         }
+
         .download-btn {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            background: #238636;
+            gap: 10px;
+            background: var(--success);
             color: #fff;
             text-decoration: none;
             padding: 12px 24px;
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 600;
-            font-size: 1rem;
-            transition: background 0.2s;
+            font-size: 0.95rem;
+            transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
             border: none;
             cursor: pointer;
+            box-shadow: 0 4px 14px rgba(46, 160, 67, 0.25);
         }
+
         .download-btn:hover {
-            background: #2ea043;
+            background: #3fb950;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(46, 160, 67, 0.35);
         }
+
         .download-btn svg {
             width: 18px;
             height: 18px;
             fill: currentColor;
         }
+
         .features {
-            margin: 40px 0;
+            margin: 60px 0;
+            animation: fadeUp 1s ease-out 0.3s both;
         }
+
         .features h2 {
             text-align: center;
-            color: #fff;
-            margin-bottom: 24px;
+            color: var(--heading);
+            margin-bottom: 32px;
+            font-size: 1.6rem;
+            font-weight: 700;
         }
+
         .feature-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 20px;
         }
+
         .feature {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 10px;
-            padding: 20px;
-        }
-        .feature h3 {
-            color: #58a6ff;
-            font-size: 1.1rem;
-            margin-bottom: 8px;
-        }
-        .feature p {
-            color: #8b949e;
-            font-size: 0.9rem;
-        }
-        .howto {
-            background: #161b22;
-            border: 1px solid #30363d;
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 28px;
-            margin: 40px 0;
+            padding: 24px;
+            transition: border-color 0.25s ease, transform 0.25s ease;
         }
+
+        .feature:hover {
+            border-color: rgba(88, 166, 255, 0.35);
+            transform: translateY(-2px);
+        }
+
+        .feature h3 {
+            color: var(--accent);
+            font-size: 1.05rem;
+            margin-bottom: 8px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feature h3 .icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            background: rgba(88, 166, 255, 0.12);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: var(--accent);
+        }
+
+        .feature p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            line-height: 1.55;
+        }
+
+        .howto {
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 40px 0 60px;
+            animation: fadeUp 1.1s ease-out 0.45s both;
+        }
+
         .howto h2 {
-            color: #fff;
-            margin-bottom: 16px;
+            color: var(--heading);
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            font-weight: 700;
         }
+
         .howto ol {
-            padding-left: 20px;
-            color: #c9d1d9;
+            padding-left: 22px;
+            color: var(--text);
         }
+
         .howto li {
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            padding-left: 6px;
         }
+
         .howto code {
-            background: #0d1117;
-            padding: 2px 8px;
-            border-radius: 4px;
-            border: 1px solid #30363d;
+            background: rgba(13, 17, 23, 0.85);
+            padding: 3px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            font-size: 0.9em;
+            font-size: 0.88em;
+            color: var(--accent);
         }
+
         footer {
             text-align: center;
-            padding: 40px 20px;
+            padding: 40px 20px 60px;
             color: #484f58;
             font-size: 0.9rem;
+            position: relative;
+            z-index: 1;
         }
+
         footer a {
-            color: #58a6ff;
+            color: var(--accent);
             text-decoration: none;
+            transition: color 0.2s;
         }
+
         footer a:hover {
+            color: #79c0ff;
             text-decoration: underline;
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
 <body>
+    <canvas id="bg"></canvas>
+
     <div class="container">
         <header>
             <h1>CLI Launchers</h1>
             <p>Smart Windows batch launchers for AI coding assistants. One file. Zero setup hassle.</p>
-            <div class="tagline">✓ Auto-install · Auto-update · Model Picker · Ollama Ready</div>
+            <div class="tagline">Auto-install &middot; Auto-update &middot; Model Picker &middot; Ollama Ready</div>
         </header>
 
         <div class="cards">
             <div class="card" id="download-codex">
                 <div class="badge">OpenAI Codex CLI</div>
-                <h2>Codex Launcher</h2>
+                <h2>Codex + Ollama</h2>
                 <p>Launch Codex CLI through Ollama with your favorite model. Checks Node.js, Codex CLI, and Ollama. Auto-installs anything missing.</p>
                 <a class="download-btn" href="https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-Launcher.bat" download="Codex-Launcher.bat">
                     <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
@@ -205,27 +350,27 @@
             <h2>What the launchers handle for you</h2>
             <div class="feature-grid">
                 <div class="feature">
-                    <h3>🔍 Prerequisite Check</h3>
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span> Prerequisite Check</h3>
                     <p>Detects Node.js, npm, Codex CLI / Claude Code, and Ollama. Tells you what is missing.</p>
                 </div>
                 <div class="feature">
-                    <h3>⬇️ Auto-Install</h3>
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span> Auto-Install</h3>
                     <p>Missing Node.js? It installs it. Missing Ollama? It installs it. Missing the CLI? It installs it.</p>
                 </div>
                 <div class="feature">
-                    <h3>🔄 Update Checker</h3>
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span> Update Checker</h3>
                     <p>Checks npm and GitHub releases for newer versions. One menu press updates everything.</p>
                 </div>
                 <div class="feature">
-                    <h3>🤖 Model Picker</h3>
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></span> Model Picker</h3>
                     <p>Browse the top 10 newest cloud models, browse your local models, or type one manually.</p>
                 </div>
                 <div class="feature">
-                    <h3>🔐 Auth Check</h3>
-                    <p>Verifies you are signed into Ollama (`ollama list`). Offers to run `ollama signin` if not.</p>
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span> Auth Check</h3>
+                    <p>Verifies you are signed into Ollama. Offers to run sign-in if not.</p>
                 </div>
                 <div class="feature">
-                    <h3>🚀 One-Click Launch</h3>
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg></span> One-Click Launch</h3>
                     <p>Builds the right command and starts the Ollama server automatically if needed.</p>
                 </div>
             </div>
@@ -234,7 +379,7 @@
         <div class="howto">
             <h2>How to use</h2>
             <ol>
-                <li><strong>Download</strong> one of the <code>.bat</code> files above (right-click → Save As, or click the green button).</li>
+                <li><strong>Download</strong> one of the <code>.bat</code> files above (right-click &rarr; Save As, or click the green button).</li>
                 <li><strong>Double-click</strong> the file or run it from Command Prompt / PowerShell.</li>
                 <li>The launcher shows a status screen and menu. Pick an option by typing the number and pressing <code>Enter</code>.</li>
                 <li>To <strong>launch directly</strong> without the menu, pass arguments:<br>
@@ -252,5 +397,97 @@
             <a href="https://github.com/jlaiii/cli-launchers/issues">Report an Issue</a>
         </p>
     </footer>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('bg');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+            let particles = [];
+            const mouse = { x: null, y: null, radius: 120 };
+            const particleCount = Math.min(80, Math.floor((window.innerWidth * window.innerHeight) / 18000));
+            const connectionDistance = 100;
+            const maxConnections = 3;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resize);
+            resize();
+
+            window.addEventListener('mousemove', e => {
+                mouse.x = e.clientX;
+                mouse.y = e.clientY;
+            });
+            window.addEventListener('mouseleave', () => {
+                mouse.x = null;
+                mouse.y = null;
+            });
+
+            class Particle {
+                constructor() {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.vx = (Math.random() - 0.5) * 0.4;
+                    this.vy = (Math.random() - 0.5) * 0.4;
+                    this.size = Math.random() * 1.5 + 0.5;
+                    this.baseAlpha = Math.random() * 0.4 + 0.15;
+                }
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    if (this.x < 0 || this.x > width) this.vx *= -1;
+                    if (this.y < 0 || this.y > height) this.vy *= -1;
+
+                    if (mouse.x != null) {
+                        const dx = mouse.x - this.x;
+                        const dy = mouse.y - this.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist < mouse.radius) {
+                            const force = (mouse.radius - dist) / mouse.radius;
+                            const angle = Math.atan2(dy, dx);
+                            this.vx -= Math.cos(angle) * force * 0.02;
+                            this.vy -= Math.sin(angle) * force * 0.02;
+                        }
+                    }
+                }
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(88, 166, 255, ${this.baseAlpha})`;
+                    ctx.fill();
+                }
+            }
+
+            for (let i = 0; i < particleCount; i++) particles.push(new Particle());
+
+            function animate() {
+                ctx.clearRect(0, 0, width, height);
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].update();
+                    particles[i].draw();
+                    let connections = 0;
+                    for (let j = i + 1; j < particles.length; j++) {
+                        const dx = particles[i].x - particles[j].x;
+                        const dy = particles[i].y - particles[j].y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist < connectionDistance && connections < maxConnections) {
+                            const alpha = (1 - dist / connectionDistance) * 0.12;
+                            ctx.beginPath();
+                            ctx.strokeStyle = `rgba(88, 166, 255, ${alpha})`;
+                            ctx.lineWidth = 0.6;
+                            ctx.moveTo(particles[i].x, particles[i].y);
+                            ctx.lineTo(particles[j].x, particles[j].y);
+                            ctx.stroke();
+                            connections++;
+                        }
+                    }
+                }
+                requestAnimationFrame(animate);
+            }
+            animate();
+        })();
+    </script>
 </body>
 </html>

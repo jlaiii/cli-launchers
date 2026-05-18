@@ -2,19 +2,19 @@
 
 Smart Windows batch launchers for AI coding assistants. Download a single `.bat` file, run it, and get an interactive menu that checks prerequisites, installs missing tools, picks models, and keeps everything up to date.
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Download** the launcher you want:
-   - [**Codex Launcher**](https://jlaiii.github.io/cli-launchers/#download-codex) — for OpenAI Codex CLI + Ollama
-   - [**Claude Launcher**](https://jlaiii.github.io/cli-launchers/#download-claude) — for Claude Code + Ollama
+   - [**Codex + Ollama**](https://jlaiii.github.io/cli-launchers/#download-codex) -- for OpenAI Codex CLI + Ollama
+   - [**Claude + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-claude) -- for Claude Code + Ollama
 2. Double-click the `.bat` file (or run it from the terminal)
-3. Follow the on-screen menu — install, update, pick a model, and launch
+3. Follow the on-screen menu -- install, update, pick a model, and launch
 
 No PowerShell knowledge required. Everything is self-contained inside the `.bat`.
 
 ---
 
-## 📦 Codex Launcher
+## Codex + Ollama
 
 **What it does:**
 - Checks if Node.js / npm is installed (auto-installs via winget or MSI if missing)
@@ -55,7 +55,7 @@ Codex-Launcher.bat --model gpt-4.1 --yolo
 
 ---
 
-## 📦 Claude + Ollama Launcher
+## Claude + Ollama Launcher
 
 **What it does:**
 - Checks if Claude Code is installed (auto-installs/updates via `claude.ai/install.ps1`)
@@ -87,7 +87,7 @@ Codex-Launcher.bat --model gpt-4.1 --yolo
 
 ---
 
-## 🛠 Requirements
+## Requirements
 
 - Windows 10/11 with PowerShell 5.1+
 - Internet connection (for installs and model browsing)
@@ -95,7 +95,7 @@ Codex-Launcher.bat --model gpt-4.1 --yolo
 
 ---
 
-## 🌐 Website
+## Website
 
 **[https://jlaiii.github.io/cli-launchers](https://jlaiii.github.io/cli-launchers)**
 
@@ -103,14 +103,14 @@ Visit the site for one-click downloads and a quick-setup guide.
 
 ---
 
-## ⚠️ Notes
+## Notes
 
 - The launchers auto-create `*.config.json` and `*.versions.json` files next to the `.bat` to remember your settings.
 - If npm/ollama installs fail, try running the launcher as Administrator.
-- The `.bat` files are self-extracting — they embed a full PowerShell script and clean up the temp file when done.
+- The `.bat` files are self-extracting -- they embed a full PowerShell script and clean up the temp file when done.
 
 ---
 
-## 📄 License
+## License
 
-MIT — use, share, modify freely.
+MIT -- use, share, modify freely.
