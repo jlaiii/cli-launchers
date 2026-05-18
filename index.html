@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CLI Launchers &mdash; Smart Windows Launchers for AI Coding Assistants</title>
-    <meta name="description" content="Download a single .bat file to launch Codex CLI or Claude Code through Ollama. Auto-installs, updates, and picks models.">
-    <meta property="og:title" content="CLI Launchers — Smart Windows Launchers for AI Coding Assistants">
-    <meta property="og:description" content="Download a single .bat file to launch Codex CLI or Claude Code through Ollama. Auto-installs, updates, and picks models.">
+    <title>CLI Launchers &mdash; Run Codex &amp; Claude Code with Any Ollama Model</title>
+    <meta name="description" content="Single .bat launchers for Codex CLI and Claude Code on Windows. Auto-installs dependencies, keeps tools updated, and lets you pick any Ollama model.">
+    <meta property="og:title" content="CLI Launchers — Run Codex & Claude Code with Any Ollama Model">
+    <meta property="og:description" content="Run Codex CLI and Claude Code with any Ollama model on Windows. One .bat file that auto-installs, updates, and launches everything.">
     <meta property="og:url" content="https://jlaiii.github.io/cli-launchers/">
     <meta property="og:type" content="website">
     <meta property="og:image" content="https://opengraph.githubassets.com/1/jlaiii/cli-launchers">
@@ -74,12 +74,21 @@
             background-clip: text;
         }
 
-        header p {
-            font-size: 1.25rem;
+        header p.lead {
+            font-size: 1.35rem;
+            color: var(--text);
+            max-width: 640px;
+            margin: 0 auto 14px;
+            line-height: 1.45;
+            font-weight: 500;
+        }
+
+        header p.sub {
+            font-size: 1.05rem;
             color: var(--text-muted);
-            max-width: 560px;
-            margin: 0 auto 24px;
-            line-height: 1.5;
+            max-width: 600px;
+            margin: 0 auto 28px;
+            line-height: 1.55;
         }
 
         .tagline {
@@ -197,8 +206,35 @@
             fill: currentColor;
         }
 
+        .whatis {
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 40px 0 0;
+            animation: fadeUp 1s ease-out 0.25s both;
+        }
+
+        .whatis h2 {
+            color: var(--heading);
+            margin-bottom: 16px;
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .whatis p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+
+        .whatis strong { color: var(--text); font-weight: 600; }
+
         .features {
-            margin: 60px 0;
+            margin: 40px 0 0;
             animation: fadeUp 1s ease-out 0.3s both;
         }
 
@@ -329,15 +365,16 @@
     <div class="container">
         <header>
             <h1>CLI Launchers</h1>
-            <p>Smart Windows batch launchers for AI coding assistants. One file. Zero setup hassle.</p>
-            <div class="tagline">Auto-install &middot; Auto-update &middot; Model Picker &middot; Ollama Ready</div>
+            <p class="lead">Run top-tier AI CLI tools with any Ollama model you want.</p>
+            <p class="sub">One .bat file for Windows. It installs what you are missing, keeps everything updated, and hands you a menu to pick models and launch.</p>
+            <div class="tagline">Zero setup &middot; Auto-install &middot; Model picker &middot; Ollama ready</div>
         </header>
 
         <div class="cards">
             <div class="card" id="download-codex">
                 <div class="badge">OpenAI Codex CLI</div>
                 <h2>Codex + Ollama Launcher</h2>
-                <p>Launch Codex CLI through Ollama with your favorite model. Checks Node.js, Codex CLI, and Ollama. Auto-installs anything missing.</p>
+                <p>Launch OpenAI Codex CLI through Ollama. Pick any cloud or local model and run it with full-auto or manual approval.</p>
                 <a class="download-btn" href="https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-Launcher.bat" download="Codex-Launcher.bat">
                     <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
                     Download .bat
@@ -346,12 +383,19 @@
             <div class="card" id="download-claude">
                 <div class="badge">Anthropic Claude Code</div>
                 <h2>Claude + Ollama Launcher</h2>
-                <p>Launch Claude Code through Ollama. Checks Claude Code and Ollama installations. Auto-updates, model picker, and permission bypass toggle.</p>
+                <p>Launch Claude Code through Ollama. Auto-installs Claude Code and Ollama, picks your model, and gets you coding in seconds.</p>
                 <a class="download-btn" href="https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Claude-Ollama-Launcher.bat" download="Claude-Ollama-Launcher.bat">
                     <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
                     Download .bat
                 </a>
             </div>
+        </div>
+
+        <div class="whatis">
+            <h2>What is this?</h2>
+            <p>CLI Launchers are single Windows batch files that set up and run the best AI coding assistants available &mdash; <strong>OpenAI Codex CLI</strong> and <strong>Anthropic Claude Code</strong> &mdash; through <strong>Ollama</strong>.</p>
+            <p>Instead of manually installing Node.js, npm, the CLI tools, and Ollama, then configuring models and launch flags, you download one <code>.bat</code> file, double-click it, and the launcher handles everything.</p>
+            <p><strong>Who is it for?</strong> Windows developers who want to use cutting-edge AI CLI tools without spending time on setup, dependency hell, or keeping tools up to date. If you want to run Codex or Claude with any Ollama model &mdash; cloud or local &mdash; this gets you there in one click.</p>
         </div>
 
         <div class="features">
@@ -399,7 +443,7 @@
     </div>
 
     <footer>
-        <p>Made for Windows PowerShell users who want AI CLI tools without the setup headache.</p>
+        <p>Made for Windows developers who want top-tier AI CLI tools without the setup headache.</p>
         <p>
             <a href="https://github.com/jlaiii/cli-launchers">GitHub Repo</a> &middot;
             <a href="https://github.com/jlaiii/cli-launchers/issues">Report an Issue</a>

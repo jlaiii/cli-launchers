@@ -1,13 +1,17 @@
 # CLI Launchers
 
-Smart Windows batch launchers for AI coding assistants. Download a single `.bat` file, run it, and get an interactive menu that checks prerequisites, installs missing tools, picks models, and keeps everything up to date.
+Run top-tier AI CLI tools with any Ollama model you want. CLI Launchers are single Windows batch files that set up and run [OpenAI Codex CLI](https://github.com/openai/codex) and [Anthropic Claude Code](https://github.com/anthropics/claude-code) through [Ollama](https://ollama.com).
+
+Instead of manually installing Node.js, npm, the CLI tools, and Ollama, then configuring models and launch flags, you download one `.bat` file, double-click it, and the launcher handles everything.
+
+**Who is it for:** Windows developers who want to use cutting-edge AI coding assistants without spending time on setup, dependency hell, or keeping tools up to date. If you want to run Codex or Claude with any Ollama model -- cloud or local -- this gets you there in one click.
 
 ## Quick Start
 
 1. **Download** the launcher you want:
    - [**Codex + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-codex) -- for OpenAI Codex CLI + Ollama
    - [**Claude + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-claude) -- for Claude Code + Ollama
-2. Double-click the `.bat` file (or run it from the terminal)
+2. **Double-click** the `.bat` file (or run it from the terminal)
 3. Follow the on-screen menu -- install, update, pick a model, and launch
 
 No PowerShell knowledge required. Everything is self-contained inside the `.bat`.
@@ -23,7 +27,7 @@ No PowerShell knowledge required. Everything is self-contained inside the `.bat`
 - Checks for updates against npm (Codex) and GitHub releases (Ollama)
 - Verifies Ollama sign-in status (`ollama list`)
 - Lets you browse cloud/local models or enter one manually
-- Auto-starts the Ollama server if it's not running
+- Auto-starts the Ollama server if it is not running
 - Launches: `ollama launch codex --model <model> -- --yolo`
 
 **Default config:**
@@ -63,7 +67,7 @@ Codex-Launcher.bat --model gpt-4.1 --yolo
 - Checks for updates against npm (Claude Code) and GitHub releases (Ollama)
 - Verifies Ollama sign-in status
 - Lets you browse cloud/local models or enter one manually
-- Auto-starts the Ollama server if it's not running
+- Auto-starts the Ollama server if it is not running
 - Launches: `ollama launch claude --model <model> -- --dangerously-skip-permissions`
 
 **Default config:**
