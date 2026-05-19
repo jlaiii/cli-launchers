@@ -7,7 +7,29 @@ set -euo pipefail
 #  through Ollama with any cloud or local model.
 # ============================================================
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# macOS PATH often misses Homebrew bins when opened via double-click
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/sbin:$PATH"
+
+# If piped (curl | bash), re-attach stdin to the terminal so read works
+if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
+    exec < /dev/tty
+fi
+
+# Check python3 is available (used for JSON persistence)
+if ! command -v python3 &>/dev/null; then
+    echo "ERROR: python3 is required but not found."
+    echo "Install Xcode Command Line Tools:  xcode-select --install"
+    exit 1
+fi
+
+# Resolve script/config directory
+if [[ "$0" == "bash" || "$0" == "-bash" || "$0" == "sh" || "$0" == "-sh" || "$0" == "" ]]; then
+    SCRIPT_DIR="$HOME/.cli-launchers"
+    mkdir -p "$SCRIPT_DIR"
+else
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 CONFIG_FILE="$SCRIPT_DIR/Claude-Ollama-Launcher.config.json"
 VERSION_CACHE="$SCRIPT_DIR/Claude-Ollama-Launcher.versions.json"
 CACHE_TTL_MINUTES=60
@@ -27,6 +49,15 @@ CLR_CYAN='\033[1;36m'
 CLR_MAGENTA='\033[1;35m'
 CLR_WHITE='\033[1;37m'
 CLR_GRAY='\033[0;37m'
+
+# --- Lowercase helper (bash 3.2 compatible) ---
+lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# --- Safe read helper (prevents set -e / set -u issues on EOF) ---
+ask() {
+    printf -v "$2" '%s' ''
+    read -rp "$1" "$2" || true
+}
 
 # ============================================================
 #  JSON Helpers (python3 is pre-installed on macOS)
@@ -217,7 +248,7 @@ function install_claude_code() {
     else
         echo -e "${CLR_RED}ERROR installing/updating Claude Code.${CLR_RESET}"
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 function install_ollama() {
@@ -227,7 +258,7 @@ function install_ollama() {
     else
         echo -e "${CLR_RED}ERROR installing/updating Ollama.${CLR_RESET}"
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 function pull_selected_model() {
@@ -239,7 +270,7 @@ function pull_selected_model() {
     else
         echo -e "${CLR_RED}ERROR pulling model.${CLR_RESET}"
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 # ============================================================
@@ -256,10 +287,10 @@ function check_ollama_signin() {
         ollama list 2>/dev/null | head -n 10 | while read -r line; do echo -e "${CLR_GRAY}  $line${CLR_RESET}"; done
     else
         echo -e "${CLR_YELLOW}Could not list Ollama models. You may need to run 'ollama signin'.${CLR_RESET}"
-        read -rp "Run 'ollama signin' now? (y/n) " ans
-        [[ "$ans" == "y" ]] && ollama signin
+        ask "Run 'ollama signin' now? (y/n) " ans
+        [[ "$(lc "$ans")" == "y" ]] && ollama signin
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 function test_ollama_running() {
@@ -340,7 +371,7 @@ function show_cloud_model_menu() {
         done < <(fetch_cloud_models)
         if [[ ${#models[@]} -eq 0 ]]; then
             echo -e "${CLR_RED}No cloud models could be fetched.${CLR_RESET}"
-            read -rp "Press Enter to return"
+            read -rp "Press Enter to return" || true
             return
         fi
         local i=1
@@ -354,17 +385,17 @@ function show_cloud_model_menu() {
         echo -e "  [M] Manual entry (type a model name yourself) ${CLR_YELLOW}"
         echo -e "  [B] Back to main menu ${CLR_MAGENTA}"
         echo ""
-        read -rp "Select a cloud model by number, or M/B: " choice
-        case "${choice,,}" in
+        ask "Select a cloud model by number, or M/B: " choice
+        case "$(lc "$choice")" in
             b) return ;;
             m)
-                read -rp "Enter the full model name (e.g., kimi-k2.6:cloud): " manual
+                ask "Enter the full model name (e.g., kimi-k2.6:cloud): " manual
                 if [[ -n "$manual" ]]; then
                     config_set "selectedModel" "$manual"
                     config_set "source" "cloud"
                     echo -e "${CLR_GREEN}Selected cloud model: $manual${CLR_RESET}"
                 fi
-                read -rp "Press Enter to continue"
+                read -rp "Press Enter to continue" || true
                 return
                 ;;
         esac
@@ -381,7 +412,7 @@ function show_cloud_model_menu() {
         else
             echo -e "${CLR_RED}Invalid input.${CLR_RESET}"
         fi
-        read -rp "Press Enter to continue"
+        read -rp "Press Enter to continue" || true
     done
 }
 
@@ -398,7 +429,7 @@ function show_local_model_menu() {
         done < <(fetch_local_models)
         if [[ ${#models[@]} -eq 0 ]]; then
             echo -e "${CLR_YELLOW}No local models found. You can pull one from the cloud first.${CLR_RESET}"
-            read -rp "Press Enter to return"
+            read -rp "Press Enter to return" || true
             return
         fi
         local i=1
@@ -411,8 +442,8 @@ function show_local_model_menu() {
         echo ""
         echo -e "  [B] Back to main menu ${CLR_MAGENTA}"
         echo ""
-        read -rp "Select a local model by number, or B: " choice
-        case "${choice,,}" in
+        ask "Select a local model by number, or B: " choice
+        case "$(lc "$choice")" in
             b) return ;;
         esac
         if [[ "$choice" =~ ^[0-9]+$ ]]; then
@@ -428,7 +459,7 @@ function show_local_model_menu() {
         else
             echo -e "${CLR_RED}Invalid input.${CLR_RESET}"
         fi
-        read -rp "Press Enter to continue"
+        read -rp "Press Enter to continue" || true
     done
 }
 
@@ -452,17 +483,17 @@ function show_model_picker() {
         echo -e "  [3] Manual Entry (type any model name) ${CLR_YELLOW}"
         echo -e "  [B] Back to Main Menu ${CLR_MAGENTA}"
         echo ""
-        read -rp "Enter your choice: " choice
-        case "${choice,,}" in
+        ask "Enter your choice: " choice
+        case "$(lc "$choice")" in
             1) show_cloud_model_menu ;;
             2) show_local_model_menu ;;
             3)
-                read -rp "Enter the full model name (e.g., ollama/llama3, kimi-k2.6:cloud, llama3.3:latest): " manual
+                ask "Enter the full model name (e.g., ollama/llama3, kimi-k2.6:cloud, llama3.3:latest): " manual
                 if [[ -n "$manual" ]]; then
                     config_set "selectedModel" "$manual"
                     config_set "source" "manual"
                     echo -e "${CLR_GREEN}Model set to: $manual${CLR_RESET}"
-                    read -rp "Press Enter to continue"
+                    read -rp "Press Enter to continue" || true
                 fi
                 ;;
             b) return ;;
@@ -479,7 +510,7 @@ function launch_claude() {
     model=$(config_get "selectedModel" "$DEFAULT_MODEL")
 
     if ! start_ollama_server; then
-        read -rp "Press Enter to return to menu"
+        read -rp "Press Enter to return to menu" || true
         return
     fi
 
@@ -510,7 +541,7 @@ function launch_claude() {
     else
         echo -e "${CLR_YELLOW}Claude Code exited with non-zero code.${CLR_RESET}"
     fi
-    read -rp "Claude Code session ended. Press Enter to return to menu"
+    read -rp "Claude Code session ended. Press Enter to return to menu" || true
 }
 
 # ============================================================
@@ -645,66 +676,66 @@ ensure_cache
 
 while true; do
     show_main_menu
-    read -rp "Enter your choice: " choice
-    case "${choice,,}" in
+    ask "Enter your choice: " choice
+    case "$(lc "$choice")" in
         1)
             if command -v claude &>/dev/null; then
-                local inst lat
+                inst="" lat=""
                 inst=$(get_claude_installed_version)
                 lat=$(get_claude_latest_version)
                 if [[ -n "$inst" && -n "$lat" ]] && version_greater "$inst" "$lat"; then
                     echo -e "${CLR_YELLOW}Claude Code update available: v$inst installed, v$lat available.${CLR_RESET}"
-                    read -rp "Update Claude Code now? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_claude_code
+                    ask "Update Claude Code now? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_claude_code
                 else
-                    read -rp "Claude Code is up to date (v$inst). Reinstall anyway? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_claude_code
+                    ask "Claude Code is up to date (v$inst). Reinstall anyway? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_claude_code
                 fi
             else
-                read -rp "Install Claude Code now? (y/n) " ans
-                [[ "$ans" == "y" ]] && install_claude_code
+                ask "Install Claude Code now? (y/n) " ans
+                [[ "$(lc "$ans")" == "y" ]] && install_claude_code
             fi
-            read -rp "Press Enter to return to menu"
+            read -rp "Press Enter to return to menu" || true
             ;;
         2)
             if command -v ollama &>/dev/null; then
-                local inst lat
+                inst="" lat=""
                 inst=$(get_ollama_installed_version)
                 lat=$(get_ollama_latest_version)
                 if [[ -n "$inst" && -n "$lat" ]] && version_greater "$inst" "$lat"; then
                     echo -e "${CLR_YELLOW}Ollama update available: v$inst installed, v$lat available.${CLR_RESET}"
-                    read -rp "Update Ollama now? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_ollama
+                    ask "Update Ollama now? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_ollama
                 else
-                    read -rp "Ollama is up to date (v$inst). Reinstall anyway? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_ollama
+                    ask "Ollama is up to date (v$inst). Reinstall anyway? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_ollama
                 fi
             else
-                read -rp "Install Ollama now? (y/n) " ans
-                [[ "$ans" == "y" ]] && install_ollama
+                ask "Install Ollama now? (y/n) " ans
+                [[ "$(lc "$ans")" == "y" ]] && install_ollama
             fi
-            read -rp "Press Enter to return to menu"
+            read -rp "Press Enter to return to menu" || true
             ;;
         3)
             show_model_picker
             ;;
         4)
-            local src
+            src=""
             src=$(config_get "source" "$DEFAULT_SOURCE")
             if [[ "$src" == "cloud" && $(command -v ollama &>/dev/null && echo YES || echo NO) == "YES" ]]; then
                 pull_selected_model
             else
                 echo -e "${CLR_YELLOW}Pull is only available when a cloud model is selected and Ollama is installed.${CLR_RESET}"
-                read -rp "Press Enter to continue"
+                read -rp "Press Enter to continue" || true
             fi
             ;;
         5)
             if ! command -v claude &>/dev/null; then
                 echo -e "${CLR_RED}ERROR: Claude Code is not installed. Please install it first (Menu option 1).${CLR_RESET}"
-                read -rp "Press Enter to return to menu"
+                read -rp "Press Enter to return to menu" || true
             elif ! command -v ollama &>/dev/null; then
                 echo -e "${CLR_RED}ERROR: Ollama is not installed. Please install it first (Menu option 2).${CLR_RESET}"
-                read -rp "Press Enter to return to menu"
+                read -rp "Press Enter to return to menu" || true
             else
                 launch_claude
             fi
@@ -719,16 +750,16 @@ while true; do
             sleep 1
             ;;
         c)
-            local current
+            current=""
             current=$(config_get "customCommand" "")
             echo -e "${CLR_CYAN}Current custom command: $( [[ -n "$current" ]] && echo "$current" || echo '(empty = default claude)' )${CLR_RESET}"
-            read -rp "Enter custom launch command (e.g. 'ollama launch claude'), or leave blank to reset: " newCmd
+            ask "Enter custom launch command (e.g. 'ollama launch claude'), or leave blank to reset: " newCmd
             config_set "customCommand" "${newCmd:-}"
             echo -e "${CLR_GREEN}Custom command updated.${CLR_RESET}"
             sleep 1
             ;;
         t)
-            local sp
+            sp=""
             sp=$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")
             if [[ "$sp" == "True" ]]; then
                 config_set "skipPermissions" "False"

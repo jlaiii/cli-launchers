@@ -8,6 +8,28 @@ Instead of manually installing Node.js, npm, the CLI tools, and Ollama, then con
 
 ## Quick Start
 
+### One-liner (copy-paste into your terminal)
+
+**Windows (PowerShell)**
+```powershell
+# Codex + Ollama
+irm https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-Launcher.ps1 | iex
+
+# Claude + Ollama
+irm https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Claude-Ollama-Launcher.ps1 | iex
+```
+
+**macOS (Terminal)**
+```bash
+# Codex + Ollama
+curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-Launcher.command | bash
+
+# Claude + Ollama
+curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Claude-Ollama-Launcher.command | bash
+```
+
+### Or download and run
+
 1. **Download** the launcher you want for your OS:
    - [**Codex + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-codex) -- for OpenAI Codex CLI + Ollama
    - [**Claude + Ollama Launcher**](https://jlaiii.github.io/cli-launchers/#download-claude) -- for Claude Code + Ollama

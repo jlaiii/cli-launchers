@@ -7,7 +7,29 @@ set -euo pipefail
 #  through Ollama with any cloud or local model.
 # ============================================================
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# macOS PATH often misses Homebrew bins when opened via double-click
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/sbin:$PATH"
+
+# If piped (curl | bash), re-attach stdin to the terminal so read works
+if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
+    exec < /dev/tty
+fi
+
+# Check python3 is available (used for JSON persistence)
+if ! command -v python3 &>/dev/null; then
+    echo "ERROR: python3 is required but not found."
+    echo "Install Xcode Command Line Tools:  xcode-select --install"
+    exit 1
+fi
+
+# Resolve script/config directory
+if [[ "$0" == "bash" || "$0" == "-bash" || "$0" == "sh" || "$0" == "-sh" || "$0" == "" ]]; then
+    SCRIPT_DIR="$HOME/.cli-launchers"
+    mkdir -p "$SCRIPT_DIR"
+else
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 CONFIG_FILE="$SCRIPT_DIR/Codex-Launcher.config.json"
 VERSION_CACHE="$SCRIPT_DIR/Codex-Launcher.versions.json"
 CACHE_TTL_MINUTES=60
@@ -30,6 +52,15 @@ CLR_MAGENTA='\033[1;35m'
 CLR_WHITE='\033[1;37m'
 CLR_GRAY='\033[0;37m'
 
+# --- Lowercase helper (bash 3.2 compatible) ---
+lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# --- Safe read helper (prevents set -e / set -u issues on EOF) ---
+ask() {
+    printf -v "$2" '%s' ''
+    read -rp "$1" "$2" || true
+}
+
 # ============================================================
 #  JSON Helpers (python3 is pre-installed on macOS)
 # ============================================================
@@ -44,20 +75,6 @@ try:
     print(v if v is not None else '$default')
 except: print('$default')
 " 2>/dev/null || echo "$default"
-}
-
-function json_write() {
-    local file="$1"; shift
-    python3 -c "
-import json, sys, os
-d={}
-if os.path.exists('$file'):
-    try:
-        with open('$file') as f: d=json.load(f)
-    except: d={}
-" "$@" "
-with open('$file','w') as f: json.dump(d,f,indent=2)
-" 2>/dev/null
 }
 
 function config_get() { json_read "$CONFIG_FILE" "$1" "$2"; }
@@ -252,7 +269,6 @@ else: print(arr[0]['version'] if arr else '')
         echo -e "${CLR_CYAN}Running Node.js installer... (may prompt for password)${CLR_RESET}"
         sudo installer -pkg "$pkg" -target / 2>/dev/null || { echo -e "${CLR_RED}PKG install failed.${CLR_RESET}"; return 1; }
         rm -f "$pkg"
-        # Refresh PATH for this session
         export PATH="/usr/local/bin:$PATH"
         if command -v npm &>/dev/null; then
             echo -e "${CLR_GREEN}Node.js installed successfully!${CLR_RESET}"
@@ -266,13 +282,12 @@ else: print(arr[0]['version'] if arr else '')
 function install_codex_cli() {
     if ! command -v npm &>/dev/null; then
         echo -e "${CLR_YELLOW}Node.js / npm not found.${CLR_RESET}"
-        read -rp "Install Node.js automatically? (y/n) " ans
-        [[ "$ans" != "y" ]] && return 1
+        ask "Install Node.js automatically? (y/n) " ans
+        [[ "$(lc "$ans")" != "y" ]] && return 1
         install_nodejs || return 1
     fi
     echo -e "${CLR_CYAN}Installing / Updating Codex CLI via npm...${CLR_RESET}"
     if npm install -g @openai/codex 2>/dev/null; then
-        export PATH="$(npm bin -g 2>/dev/null):$PATH"
         if command -v codex &>/dev/null; then
             local ver
             ver=$(get_codex_installed_version)
@@ -295,7 +310,7 @@ function install_ollama() {
     else
         echo -e "${CLR_RED}ERROR installing Ollama. Visit https://ollama.com for manual instructions.${CLR_RESET}"
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 function pull_selected_model() {
@@ -307,7 +322,7 @@ function pull_selected_model() {
     else
         echo -e "${CLR_RED}ERROR pulling model.${CLR_RESET}"
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 # ============================================================
@@ -324,10 +339,10 @@ function check_ollama_signin() {
         ollama list 2>/dev/null | head -n 10 | while read -r line; do echo -e "${CLR_GRAY}  $line${CLR_RESET}"; done
     else
         echo -e "${CLR_YELLOW}Could not list Ollama models. You may need to run 'ollama signin'.${CLR_RESET}"
-        read -rp "Run 'ollama signin' now? (y/n) " ans
-        [[ "$ans" == "y" ]] && ollama signin
+        ask "Run 'ollama signin' now? (y/n) " ans
+        [[ "$(lc "$ans")" == "y" ]] && ollama signin
     fi
-    read -rp "Press Enter to continue"
+    read -rp "Press Enter to continue" || true
 }
 
 function test_ollama_running() {
@@ -408,7 +423,7 @@ function show_cloud_model_menu() {
         done < <(fetch_cloud_models)
         if [[ ${#models[@]} -eq 0 ]]; then
             echo -e "${CLR_RED}No cloud models could be fetched.${CLR_RESET}"
-            read -rp "Press Enter to return"
+            read -rp "Press Enter to return" || true
             return
         fi
         local i=1
@@ -422,17 +437,17 @@ function show_cloud_model_menu() {
         echo -e "  [M] Manual entry (type a model name yourself) ${CLR_YELLOW}"
         echo -e "  [B] Back to main menu ${CLR_MAGENTA}"
         echo ""
-        read -rp "Select a cloud model by number, or M/B: " choice
-        case "${choice,,}" in
+        ask "Select a cloud model by number, or M/B: " choice
+        case "$(lc "$choice")" in
             b) return ;;
             m)
-                read -rp "Enter the full model name (e.g., kimi-k2.6:cloud): " manual
+                ask "Enter the full model name (e.g., kimi-k2.6:cloud): " manual
                 if [[ -n "$manual" ]]; then
                     config_set "selectedModel" "$manual"
                     config_set "source" "cloud"
                     echo -e "${CLR_GREEN}Selected cloud model: $manual${CLR_RESET}"
                 fi
-                read -rp "Press Enter to continue"
+                read -rp "Press Enter to continue" || true
                 return
                 ;;
         esac
@@ -449,7 +464,7 @@ function show_cloud_model_menu() {
         else
             echo -e "${CLR_RED}Invalid input.${CLR_RESET}"
         fi
-        read -rp "Press Enter to continue"
+        read -rp "Press Enter to continue" || true
     done
 }
 
@@ -466,7 +481,7 @@ function show_local_model_menu() {
         done < <(fetch_local_models)
         if [[ ${#models[@]} -eq 0 ]]; then
             echo -e "${CLR_YELLOW}No local models found. You can pull one from the cloud first.${CLR_RESET}"
-            read -rp "Press Enter to return"
+            read -rp "Press Enter to return" || true
             return
         fi
         local i=1
@@ -479,8 +494,8 @@ function show_local_model_menu() {
         echo ""
         echo -e "  [B] Back to main menu ${CLR_MAGENTA}"
         echo ""
-        read -rp "Select a local model by number, or B: " choice
-        case "${choice,,}" in
+        ask "Select a local model by number, or B: " choice
+        case "$(lc "$choice")" in
             b) return ;;
         esac
         if [[ "$choice" =~ ^[0-9]+$ ]]; then
@@ -496,7 +511,7 @@ function show_local_model_menu() {
         else
             echo -e "${CLR_RED}Invalid input.${CLR_RESET}"
         fi
-        read -rp "Press Enter to continue"
+        read -rp "Press Enter to continue" || true
     done
 }
 
@@ -520,17 +535,17 @@ function show_model_picker() {
         echo -e "  [3] Manual Entry (type any model name) ${CLR_YELLOW}"
         echo -e "  [B] Back to Main Menu ${CLR_MAGENTA}"
         echo ""
-        read -rp "Enter your choice: " choice
-        case "${choice,,}" in
+        ask "Enter your choice: " choice
+        case "$(lc "$choice")" in
             1) show_cloud_model_menu ;;
             2) show_local_model_menu ;;
             3)
-                read -rp "Enter the full model name (e.g., kimi-k2.6:cloud, llama3.3:latest): " manual
+                ask "Enter the full model name (e.g., kimi-k2.6:cloud, llama3.3:latest): " manual
                 if [[ -n "$manual" ]]; then
                     config_set "selectedModel" "$manual"
                     config_set "source" "manual"
                     echo -e "${CLR_GREEN}Model set to: $manual${CLR_RESET}"
-                    read -rp "Press Enter to continue"
+                    read -rp "Press Enter to continue" || true
                 fi
                 ;;
             b) return ;;
@@ -548,20 +563,20 @@ function launch_codex() {
     model=$(config_get "selectedModel" "$DEFAULT_MODEL")
 
     if ! start_ollama_server; then
-        read -rp "Press Enter to return to menu"
+        read -rp "Press Enter to return to menu" || true
         return
     fi
 
     clear
     local cmdParts=("ollama" "launch" "codex")
     local hasModel=0 hasYolo=0 foundSep=0
-    local -a extraAfterSep=()
+    local -a extraAfterSec=()
     local skipNext=0
 
     for a in "${passArgs[@]}"; do
         if [[ $skipNext -eq 1 ]]; then skipNext=0; continue; fi
         if [[ "$a" == "--" ]]; then foundSep=1; continue; fi
-        if [[ $foundSep -eq 1 ]]; then extraAfterSep+=("$a"); continue; fi
+        if [[ $foundSep -eq 1 ]]; then extraAfterSec+=("$a"); continue; fi
         if [[ "$a" == "--model" ]]; then
             hasModel=1
             cmdParts+=("--model")
@@ -572,7 +587,7 @@ function launch_codex() {
         elif [[ "$a" == "--yolo" ]]; then
             hasYolo=1
         else
-            extraAfterSep+=("$a")
+            extraAfterSec+=("$a")
         fi
     done
 
@@ -594,8 +609,8 @@ function launch_codex() {
         cmdParts+=("${ca[@]}")
     fi
 
-    if [[ ${#extraAfterSep[@]} -gt 0 ]]; then
-        cmdParts+=("${extraAfterSep[@]}")
+    if [[ ${#extraAfterSec[@]} -gt 0 ]]; then
+        cmdParts+=("${extraAfterSec[@]}")
     fi
 
     local cmdString
@@ -609,7 +624,7 @@ function launch_codex() {
     else
         echo -e "${CLR_YELLOW}Codex exited with non-zero code.${CLR_RESET}"
     fi
-    read -rp "Codex session ended. Press Enter to return to menu"
+    read -rp "Codex session ended. Press Enter to return to menu" || true
 }
 
 # ============================================================
@@ -743,7 +758,7 @@ ensure_cache
 
 # --- Direct launch mode ---
 if [[ $# -gt 0 ]]; then
-    local -a launchArgs=("$@")
+    launchArgs=("$@")
     if [[ "${launchArgs[0]}" == "launch" ]]; then
         launchArgs=("${launchArgs[@]:1}")
     fi
@@ -755,14 +770,14 @@ if [[ $# -gt 0 ]]; then
         echo -e "${CLR_YELLOW}Ollama not found. Installing...${CLR_RESET}"
         install_ollama || exit 1
     fi
-    local skipUpdate
+    skipUpdate=""
     skipUpdate=$(config_get "skipUpdateCheck" "$DEFAULT_SKIPUPDATE")
     if [[ "$skipUpdate" != "True" ]]; then
-        local cInst cLat oInst oLat
+        cInst="" cLat="" oInst="" oLat=""
         cInst=$(get_codex_installed_version)
         cLat=$(get_codex_latest_version)
         if [[ -n "$cInst" && -n "$cLat" ]] && version_greater "$cInst" "$cLat"; then
-            local autoUpd
+            autoUpd=""
             autoUpd=$(config_get "autoUpdate" "$DEFAULT_AUTOUPDATE")
             if [[ "$autoUpd" == "True" ]]; then
                 echo -e "${CLR_CYAN}Auto-updating Codex CLI...${CLR_RESET}"
@@ -786,61 +801,61 @@ fi
 # --- Interactive menu mode ---
 while true; do
     show_main_menu
-    read -rp "Enter choice: " choice
-    case "${choice,,}" in
+    ask "Enter choice: " choice
+    case "$(lc "$choice")" in
         1)
             if command -v codex &>/dev/null; then
-                local inst lat
+                inst="" lat=""
                 inst=$(get_codex_installed_version)
                 lat=$(get_codex_latest_version)
                 if [[ -n "$inst" && -n "$lat" ]] && version_greater "$inst" "$lat"; then
                     echo -e "${CLR_YELLOW}Codex CLI update available: v$inst installed, v$lat available.${CLR_RESET}"
-                    read -rp "Update Codex CLI now? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_codex_cli
+                    ask "Update Codex CLI now? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_codex_cli
                 else
-                    read -rp "Codex CLI is up to date (v$inst). Reinstall anyway? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_codex_cli
+                    ask "Codex CLI is up to date (v$inst). Reinstall anyway? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_codex_cli
                 fi
             else
-                read -rp "Install Codex CLI now? (y/n) " ans
-                [[ "$ans" == "y" ]] && install_codex_cli
+                ask "Install Codex CLI now? (y/n) " ans
+                [[ "$(lc "$ans")" == "y" ]] && install_codex_cli
             fi
-            read -rp "Press Enter to continue"
+            read -rp "Press Enter to continue" || true
             ;;
         2)
             if command -v ollama &>/dev/null; then
-                local inst lat
+                inst="" lat=""
                 inst=$(get_ollama_installed_version)
                 lat=$(get_ollama_latest_version)
                 if [[ -n "$inst" && -n "$lat" ]] && version_greater "$inst" "$lat"; then
                     echo -e "${CLR_YELLOW}Ollama update available: v$inst installed, v$lat available.${CLR_RESET}"
-                    read -rp "Update Ollama now? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_ollama
+                    ask "Update Ollama now? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_ollama
                 else
-                    read -rp "Ollama is up to date (v$inst). Reinstall anyway? (y/n) " ans
-                    [[ "$ans" == "y" ]] && install_ollama
+                    ask "Ollama is up to date (v$inst). Reinstall anyway? (y/n) " ans
+                    [[ "$(lc "$ans")" == "y" ]] && install_ollama
                 fi
             else
-                read -rp "Install Ollama now? (y/n) " ans
-                [[ "$ans" == "y" ]] && install_ollama
+                ask "Install Ollama now? (y/n) " ans
+                [[ "$(lc "$ans")" == "y" ]] && install_ollama
             fi
-            read -rp "Press Enter to continue"
+            read -rp "Press Enter to continue" || true
             ;;
         3)
             show_model_picker
             ;;
         4)
-            local src
+            src=""
             src=$(config_get "source" "$DEFAULT_SOURCE")
             if [[ "$src" == "cloud" && $(command -v ollama &>/dev/null && echo YES || echo NO) == "YES" ]]; then
                 pull_selected_model
             else
                 echo -e "${CLR_YELLOW}Pull is only available when a cloud model is selected and Ollama is installed.${CLR_RESET}"
-                read -rp "Press Enter to continue"
+                read -rp "Press Enter to continue" || true
             fi
             ;;
         5)
-            local fa
+            fa=""
             fa=$(config_get "fullAuto" "$DEFAULT_FULLAUTO")
             if [[ "$fa" == "True" ]]; then
                 config_set "fullAuto" "False"
@@ -852,10 +867,10 @@ while true; do
             sleep 1
             ;;
         6)
-            local ca
+            ca=""
             ca=$(config_get "customArgs" "")
             echo -e "${CLR_CYAN}Current custom args: $( [[ -n "$ca" ]] && echo "$ca" || echo '(none)' )${CLR_RESET}"
-            read -rp "Enter extra args (e.g. --approval-mode full-auto), or blank to clear: " new
+            ask "Enter extra args (e.g. --approval-mode full-auto), or blank to clear: " new
             config_set "customArgs" "${new:-}"
             echo -e "${CLR_GREEN}Custom args updated.${CLR_RESET}"
             sleep 1
@@ -866,10 +881,10 @@ while true; do
         8)
             if ! command -v codex &>/dev/null; then
                 echo -e "${CLR_RED}Codex CLI not installed. Install first (option 1).${CLR_RESET}"
-                read -rp "Press Enter to continue"
+                read -rp "Press Enter to continue" || true
             elif ! command -v ollama &>/dev/null; then
                 echo -e "${CLR_RED}Ollama not installed. Install first (option 2).${CLR_RESET}"
-                read -rp "Press Enter to continue"
+                read -rp "Press Enter to continue" || true
             else
                 clear
                 launch_codex
@@ -882,7 +897,7 @@ while true; do
             sleep 1
             ;;
         a)
-            local au
+            au=""
             au=$(config_get "autoUpdate" "$DEFAULT_AUTOUPDATE")
             if [[ "$au" == "True" ]]; then
                 config_set "autoUpdate" "False"

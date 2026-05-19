@@ -372,6 +372,55 @@
             text-decoration: underline;
         }
 
+        .oneliner {
+            margin-top: 16px;
+        }
+
+        .oneliner-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .codebox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(13, 17, 23, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.78rem;
+            color: var(--accent);
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .codebox:hover {
+            border-color: rgba(88, 166, 255, 0.5);
+        }
+
+        .codebox code {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            user-select: all;
+        }
+
+        .codebox .copy-icon {
+            width: 14px;
+            height: 14px;
+            fill: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .codebox.copied .copy-icon {
+            fill: var(--success);
+        }
+
         @keyframes fadeUp {
             from { opacity: 0; transform: translateY(20px); }
             to   { opacity: 1; transform: translateY(0); }
@@ -404,6 +453,17 @@
                         macOS .command
                     </a>
                 </div>
+                <div class="oneliner">
+                    <div class="oneliner-label">Or paste into your terminal</div>
+                    <div class="codebox" onclick="copy(this)">
+                        <code>irm https:\/\/raw.githubusercontent.com\/jlaiii\/cli-launchers\/main\/Codex-Launcher.ps1 | iex</code>
+                        <svg class="copy-icon" viewBox="0 0 16 16"><path d="M0 1.75A1.75 1.75 0 0 1 1.75 0h8.5C11.216 0 12 .784 12 1.75v8.5A1.75 1.75 0 0 1 10.25 12h-8.5A1.75 1.75 0 0 1 0 10.25v-8.5Zm1.75-.25a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5ZM4 4h5v1H4V4Zm0 2h5v1H4V6Zm0 2h3v1H4V8Z"\/></svg>
+                    </div>
+                    <div class="codebox" onclick="copy(this)">
+                        <code>curl -fsSL https:\/\/raw.githubusercontent.com\/jlaiii\/cli-launchers\/main\/Codex-Launcher.command | bash</code>
+                        <svg class="copy-icon" viewBox="0 0 16 16"><path d="M0 1.75A1.75 1.75 0 0 1 1.75 0h8.5C11.216 0 12 .784 12 1.75v8.5A1.75 1.75 0 0 1 10.25 12h-8.5A1.75 1.75 0 0 1 0 10.25v-8.5Zm1.75-.25a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5ZM4 4h5v1H4V4Zm0 2h5v1H4V6Zm0 2h3v1H4V8Z"\/></svg>
+                    </div>
+                </div>
             </div>
             <div class="card" id="download-claude">
                 <div class="badge">Anthropic Claude Code</div>
@@ -418,6 +478,17 @@
                         <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
                         macOS .command
                     </a>
+                </div>
+                <div class="oneliner">
+                    <div class="oneliner-label">Or paste into your terminal</div>
+                    <div class="codebox" onclick="copy(this)">
+                        <code>irm https:\/\/raw.githubusercontent.com\/jlaiii\/cli-launchers\/main\/Claude-Ollama-Launcher.ps1 | iex</code>
+                        <svg class="copy-icon" viewBox="0 0 16 16"><path d="M0 1.75A1.75 1.75 0 0 1 1.75 0h8.5C11.216 0 12 .784 12 1.75v8.5A1.75 1.75 0 0 1 10.25 12h-8.5A1.75 1.75 0 0 1 0 10.25v-8.5Zm1.75-.25a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5ZM4 4h5v1H4V4Zm0 2h5v1H4V6Zm0 2h3v1H4V8Z"\/></svg>
+                    </div>
+                    <div class="codebox" onclick="copy(this)">
+                        <code>curl -fsSL https:\/\/raw.githubusercontent.com\/jlaiii\/cli-launchers\/main\/Claude-Ollama-Launcher.command | bash</code>
+                        <svg class="copy-icon" viewBox="0 0 16 16"><path d="M0 1.75A1.75 1.75 0 0 1 1.75 0h8.5C11.216 0 12 .784 12 1.75v8.5A1.75 1.75 0 0 1 10.25 12h-8.5A1.75 1.75 0 0 1 0 10.25v-8.5Zm1.75-.25a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5ZM4 4h5v1H4V4Zm0 2h5v1H4V6Zm0 2h3v1H4V8Z"\/></svg>
+                    </div>
                 </div>
             </div>
         </div>
@@ -489,6 +560,13 @@
     </footer>
 
     <script>
+        function copy(el) {
+            const code = el.querySelector('code').innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                el.classList.add('copied');
+                setTimeout(() => el.classList.remove('copied'), 1200);
+            });
+        }
         (function() {
             const canvas = document.getElementById('bg');
             const ctx = canvas.getContext('2d');
