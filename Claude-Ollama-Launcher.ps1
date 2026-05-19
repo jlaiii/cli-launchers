@@ -187,6 +187,41 @@ function Test-CommandExists {
     }
 }
 
+function Find-ClaudeExe {
+    # If already in PATH, return the resolved path
+    try {
+        $cmd = Get-Command "claude" -ErrorAction Stop
+        if ($cmd) { return $cmd.Source }
+    } catch {}
+
+    # Search common install locations that the official installer uses
+    $candidates = @(
+        (Join-Path $env:USERPROFILE ".local\bin\claude.exe")
+        (Join-Path $env:USERPROFILE "bin\claude.exe")
+        (Join-Path $env:LOCALAPPDATA "Programs\Claude\claude.exe")
+        (Join-Path $env:LOCALAPPDATA "AnthropicClaude\claude.exe")
+        (Join-Path $env:LOCALAPPDATA "Claude\claude.exe")
+        (Join-Path $env:ProgramFiles "Claude\claude.exe")
+        (Join-Path $env:ProgramFiles "(x86)\Claude\claude.exe")
+    )
+
+    foreach ($path in $candidates) {
+        if (Test-Path $path) { return $path }
+    }
+    return $null
+}
+
+function Ensure-ClaudeInPath {
+    $claudePath = Find-ClaudeExe
+    if ($claudePath) {
+        $dir = Split-Path -Parent $claudePath
+        $pathDirs = $env:PATH -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        if ($pathDirs -notcontains $dir) {
+            $env:PATH = "$dir;$env:PATH"
+        }
+    }
+}
+
 # ============================================
 # Installers / Updaters
 # ============================================
@@ -196,6 +231,20 @@ function Install-ClaudeCode {
     try {
         irm https://claude.ai/install.ps1 | iex
         Write-Host "Claude Code installation/update completed." -ForegroundColor Green
+        Ensure-ClaudeInPath
+        $claudePath = Find-ClaudeExe
+        if ($claudePath) {
+            $dir = Split-Path -Parent $claudePath
+            $pathDirs = $env:PATH -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            if ($pathDirs -contains $dir) {
+                Write-Host "Claude Code is now available in this session from: $dir" -ForegroundColor Green
+            } else {
+                Write-Host "WARNING: Claude Code was installed to $dir but could not be added to PATH for this session." -ForegroundColor Yellow
+                Write-Host "You may need to add $dir to your system PATH manually (System Properties > Environment Variables)." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "WARNING: Claude Code installer finished but claude.exe was not found in expected locations." -ForegroundColor Yellow
+        }
     } catch {
         Write-Host "ERROR installing/updating Claude Code: $_" -ForegroundColor Red
     }
@@ -644,6 +693,8 @@ function Show-MainMenu {
 }
 
 # ========== MAIN EXECUTION ==========
+
+Ensure-ClaudeInPath
 
 while ($true) {
     Show-MainMenu
