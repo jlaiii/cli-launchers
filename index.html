@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CLI Launchers &mdash; Run Codex &amp; Claude Code with Any Ollama Model</title>
-    <meta name="description" content="Single .bat launchers for Codex CLI and Claude Code on Windows. Auto-installs dependencies, keeps tools updated, and lets you pick any Ollama model.">
+    <meta name="description" content="Single-file launchers for Codex CLI and Claude Code on Windows and macOS. Auto-installs dependencies, keeps tools updated, and lets you pick any Ollama model.">
     <meta property="og:title" content="CLI Launchers — Run Codex & Claude Code with Any Ollama Model">
-    <meta property="og:description" content="Run Codex CLI and Claude Code with any Ollama model on Windows. One .bat file that auto-installs, updates, and launches everything.">
+    <meta property="og:description" content="Run Codex CLI and Claude Code with any Ollama model on Windows and macOS. One file that auto-installs, updates, and launches everything.">
     <meta property="og:url" content="https://jlaiii.github.io/cli-launchers/">
     <meta property="og:type" content="website">
     <meta property="og:image" content="https://opengraph.githubassets.com/1/jlaiii/cli-launchers">
@@ -206,6 +206,25 @@
             fill: currentColor;
         }
 
+        .download-btn.secondary {
+            background: rgba(88, 166, 255, 0.12);
+            color: var(--accent);
+            border: 1px solid rgba(88, 166, 255, 0.35);
+            box-shadow: none;
+        }
+
+        .download-btn.secondary:hover {
+            background: rgba(88, 166, 255, 0.22);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(88, 166, 255, 0.15);
+        }
+
+        .download-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
         .whatis {
             background: var(--surface);
             backdrop-filter: blur(12px);
@@ -366,7 +385,7 @@
         <header>
             <h1>CLI Launchers</h1>
             <p class="lead">Run top-tier AI CLI tools with any Ollama model you want.</p>
-            <p class="sub">One .bat file for Windows. It installs what you are missing, keeps everything updated, and hands you a menu to pick models and launch.</p>
+            <p class="sub">One file for Windows or macOS. It installs what you are missing, keeps everything updated, and hands you a menu to pick models and launch.</p>
             <div class="tagline">Zero setup &middot; Auto-install &middot; Model picker &middot; Ollama ready</div>
         </header>
 
@@ -375,27 +394,39 @@
                 <div class="badge">OpenAI Codex CLI</div>
                 <h2>Codex + Ollama Launcher</h2>
                 <p>Launch OpenAI Codex CLI through Ollama. Pick any cloud or local model and run it with full-auto or manual approval.</p>
-                <a class="download-btn" href="Codex-Launcher.bat" download="Codex-Launcher.bat">
-                    <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
-                    Download .bat
-                </a>
+                <div class="download-group">
+                    <a class="download-btn" href="Codex-Launcher.bat" download="Codex-Launcher.bat">
+                        <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                        Windows .bat
+                    </a>
+                    <a class="download-btn secondary" href="Codex-Launcher.command" download="Codex-Launcher.command">
+                        <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                        macOS .command
+                    </a>
+                </div>
             </div>
             <div class="card" id="download-claude">
                 <div class="badge">Anthropic Claude Code</div>
                 <h2>Claude + Ollama Launcher</h2>
                 <p>Launch Claude Code through Ollama. Auto-installs Claude Code and Ollama, picks your model, and gets you coding in seconds.</p>
-                <a class="download-btn" href="Claude-Ollama-Launcher.bat" download="Claude-Ollama-Launcher.bat">
-                    <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
-                    Download .bat
-                </a>
+                <div class="download-group">
+                    <a class="download-btn" href="Claude-Ollama-Launcher.bat" download="Claude-Ollama-Launcher.bat">
+                        <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                        Windows .bat
+                    </a>
+                    <a class="download-btn secondary" href="Claude-Ollama-Launcher.command" download="Claude-Ollama-Launcher.command">
+                        <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                        macOS .command
+                    </a>
+                </div>
             </div>
         </div>
 
         <div class="whatis">
             <h2>What is this?</h2>
-            <p>CLI Launchers are single Windows batch files that set up and run the best AI coding assistants available &mdash; <strong>OpenAI Codex CLI</strong> and <strong>Anthropic Claude Code</strong> &mdash; through <strong>Ollama</strong>.</p>
-            <p>Instead of manually installing Node.js, npm, the CLI tools, and Ollama, then configuring models and launch flags, you download one <code>.bat</code> file, double-click it, and the launcher handles everything.</p>
-            <p><strong>Who is it for?</strong> Windows developers who want to use cutting-edge AI CLI tools without spending time on setup, dependency hell, or keeping tools up to date. If you want to run Codex or Claude with any Ollama model &mdash; cloud or local &mdash; this gets you there in one click.</p>
+            <p>CLI Launchers are single-file scripts that set up and run the best AI coding assistants available &mdash; <strong>OpenAI Codex CLI</strong> and <strong>Anthropic Claude Code</strong> &mdash; through <strong>Ollama</strong>.</p>
+            <p>Instead of manually installing Node.js, npm, the CLI tools, and Ollama, then configuring models and launch flags, you download one file &mdash; a <code>.bat</code> for Windows or a <code>.command</code> for macOS &mdash; run it, and the launcher handles everything.</p>
+            <p><strong>Who is it for?</strong> Developers on Windows or macOS who want to use cutting-edge AI CLI tools without spending time on setup, dependency hell, or keeping tools up to date. If you want to run Codex or Claude with any Ollama model &mdash; cloud or local &mdash; this gets you there in one click.</p>
         </div>
 
         <div class="features">
@@ -422,6 +453,10 @@
                     <p>Verifies you are signed into Ollama. Offers to run sign-in if not.</p>
                 </div>
                 <div class="feature">
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span> Cross-Platform</h3>
+                    <p>Same smooth experience on Windows and macOS. One codebase, two native wrappers.</p>
+                </div>
+                <div class="feature">
                     <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg></span> One-Click Launch</h3>
                     <p>Builds the right command and starts the Ollama server automatically if needed.</p>
                 </div>
@@ -431,19 +466,22 @@
         <div class="howto">
             <h2>How to use</h2>
             <ol>
-                <li><strong>Download</strong> one of the <code>.bat</code> files above by clicking the green button.</li>
-                <li><strong>Double-click</strong> the file or run it from Command Prompt / PowerShell.</li>
+                <li><strong>Download</strong> the launcher for your OS above by clicking the green (Windows) or blue (macOS) button.</li>
+                <li><strong>Windows:</strong> Double-click the <code>.bat</code> file or run it from Command Prompt / PowerShell.<br>
+                    <strong>macOS:</strong> Right-click the <code>.command</code> file and choose <strong>Open</strong> (required the first time because it was downloaded from the web), or run it from Terminal.</li>
                 <li>The launcher shows a status screen and menu. Pick an option by typing the number and pressing <code>Enter</code>.</li>
                 <li>To <strong>launch directly</strong> without the menu, pass arguments:<br>
                     <code>Codex-Launcher.bat launch --model kimi-k2.6:cloud -- --yolo</code><br>
-                    <code>Claude-Ollama-Launcher.bat launch --model ollama/llama3</code>
+                    <code>Claude-Ollama-Launcher.bat launch --model ollama/llama3</code><br>
+                    <code>./Codex-Launcher.command launch --model kimi-k2.6:cloud -- --yolo</code><br>
+                    <code>./Claude-Ollama-Launcher.command launch --model ollama/llama3</code>
                 </li>
             </ol>
         </div>
     </div>
 
     <footer>
-        <p>Made for Windows developers who want top-tier AI CLI tools without the setup headache.</p>
+        <p>Made for developers who want top-tier AI CLI tools without the setup headache.</p>
         <p>
             <a href="https://github.com/jlaiii/cli-launchers">GitHub Repo</a> &middot;
             <a href="https://github.com/jlaiii/cli-launchers/issues">Report an Issue</a>
