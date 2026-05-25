@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 set "BAT_DIR=%~dp0"
 set "PSFILE=%TEMP%\CodexLauncher.ps1"
 powershell -NoProfile -Command "Get-Content '%~f0' -Encoding UTF8 | Select-Object -Skip 9 | Out-File '%PSFILE%' -Encoding UTF8"
@@ -787,9 +787,13 @@ function Launch-Codex([string[]]$passArgs) {
 
     Clear-Host
     try {
-        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) {
-            Write-Host "Codex exited with code $($proc.ExitCode)." -ForegroundColor Yellow
+        if ($cfg.provider -eq "deepseek") {
+            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+        } else {
+            $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Host "Codex exited with code $($proc.ExitCode)." -ForegroundColor Yellow
+            }
         }
     } catch {
         Write-Host "ERROR launching Codex: $_" -ForegroundColor Red

@@ -760,9 +760,9 @@ function Launch-CodexApp([string[]]$passArgs) {
 
         Clear-Host
         try {
-            $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
-            if ($proc.ExitCode -ne 0) {
-                Write-Host "Codex App exited with code $($proc.ExitCode)." -ForegroundColor Yellow
+            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow
             }
         } catch {
             Write-Host "ERROR launching Codex App: $_" -ForegroundColor Red
