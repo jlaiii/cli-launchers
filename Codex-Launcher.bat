@@ -28,7 +28,8 @@ Clear-Host
 # ============================================
 # Paths & Defaults
 # ============================================
-$script:BaseDir      = if ($env:BatDir) { $env:BatDir } else { $PSScriptRoot }
+$script:BaseDir      = if ($env:BatDir) { $env:BatDir } elseif ($PSScriptRoot) { $PSScriptRoot } else { Join-Path $env:USERPROFILE ".cli-launchers" }
+if (-not (Test-Path $script:BaseDir)) { New-Item -ItemType Directory -Force -Path $script:BaseDir | Out-Null }
 $script:ConfigPath   = Join-Path $script:BaseDir "Codex-Launcher.config.json"
 $script:VersionCache = Join-Path $script:BaseDir "Codex-Launcher.versions.json"
 $script:CacheTTLMinutes = 60
@@ -40,6 +41,9 @@ $script:DefaultConfig = @{
     customArgs      = ""
     autoUpdate      = $false
     skipUpdateCheck = $false
+    provider        = "ollama"
+    deepseekModel   = "deepseek-chat"
+    deepseekApiKey  = ""
 }# ============================================
 # Config Helpers
 # ============================================
@@ -514,13 +518,28 @@ function Show-ModelPicker {
         Write-Host ""
         $cfg = Get-Config
         Write-Host "Current selection:" -ForegroundColor Cyan
-        Write-Host "  Model : $($cfg.selectedModel)" -ForegroundColor White
-        Write-Host "  Source: $($cfg.source)" -ForegroundColor White
+        Write-Host "  Provider : $($cfg.provider)" -ForegroundColor White
+        Write-Host "  Model    : $($cfg.selectedModel)" -ForegroundColor White
+        Write-Host "  Source   : $($cfg.source)" -ForegroundColor White
+        if ($cfg.provider -eq "deepseek") {
+            Write-Host "  DeepSeek Model : $($cfg.deepseekModel)" -ForegroundColor White
+            if ($cfg.deepseekApiKey) {
+                $masked = $cfg.deepseekApiKey.Substring(0, [Math]::Min(8, $cfg.deepseekApiKey.Length)) + "..."
+                Write-Host "  DeepSeek Key   : $masked" -ForegroundColor DarkGray
+            } else {
+                Write-Host "  DeepSeek Key   : NOT SET" -ForegroundColor Red
+            }
+        }
         Write-Host ""
         Write-Host "Options:" -ForegroundColor Cyan
         Write-Host "  [1] Browse Cloud Models (Ollama Registry)" -ForegroundColor Yellow
         Write-Host "  [2] Browse Local Models (this PC)" -ForegroundColor Yellow
-        Write-Host "  [3] Manual Entry (type any model name)" -ForegroundColor Yellow
+        if ($cfg.provider -eq "deepseek") {
+            Write-Host "  [3] DeepSeek Model Settings" -ForegroundColor Yellow
+        } else {
+            Write-Host "  [3] Manual Entry (type any model name)" -ForegroundColor Yellow
+        }
+        Write-Host "  [4] Switch Provider (Ollama / DeepSeek)" -ForegroundColor Yellow
         Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
         Write-Host ""
         $choice = Read-Host "Enter your choice"
@@ -528,27 +547,175 @@ function Show-ModelPicker {
             "1" { Show-CloudModelMenu }
             "2" { Show-LocalModelMenu }
             "3" {
-                $manual = Read-Host "Enter the full model name (e.g., kimi-k2.6:cloud, llama3.3:latest)"
-                if ($manual) {
-                    $cfg = Get-Config
-                    $cfg.selectedModel = $manual
-                    $cfg.source = "manual"
-                    Save-Config $cfg
-                    Write-Host "Model set to: $manual" -ForegroundColor Green
-                    Read-Host "Press Enter to continue"
+                if ((Get-Config).provider -eq "deepseek") {
+                    Show-DeepSeekModelPicker
+                } else {
+                    $manual = Read-Host "Enter the full model name (e.g., kimi-k2.6:cloud, llama3.3:latest)"
+                    if ($manual) {
+                        $cfg = Get-Config
+                        $cfg.selectedModel = $manual
+                        $cfg.source = "manual"
+                        Save-Config $cfg
+                        Write-Host "Model set to: $manual" -ForegroundColor Green
+                        Read-Host "Press Enter to continue"
+                    }
                 }
+            }
+            "4" { Show-ProviderMenu }
+            "b" { return }
+            default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        }
+    }
+}function Show-ProviderMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host "         Select AI Provider" -ForegroundColor Green
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host ""
+        $cfg = Get-Config
+        Write-Host "Current provider: $($cfg.provider)" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Options:" -ForegroundColor Cyan
+        Write-Host "  [1] Ollama (local / cloud models)" -ForegroundColor Yellow
+        Write-Host "  [2] DeepSeek API (cloud API)" -ForegroundColor Yellow
+        Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
+        Write-Host ""
+        $choice = Read-Host "Enter your choice"
+        switch ($choice.ToLower()) {
+            "1" {
+                $cfg = Get-Config
+                $cfg.provider = "ollama"
+                Save-Config $cfg
+                Write-Host "Provider set to: Ollama" -ForegroundColor Green
+                Start-Sleep -Seconds 1
+                return
+            }
+            "2" {
+                $cfg = Get-Config
+                if ([string]::IsNullOrWhiteSpace($cfg.deepseekApiKey)) {
+                    Write-Host "DeepSeek API key is not set." -ForegroundColor Yellow
+                    $key = Read-Host "Enter your DeepSeek API key (or press Enter to skip)"
+                    if ($key) {
+                        $cfg.deepseekApiKey = $key.Trim()
+                    }
+                }
+                $cfg.provider = "deepseek"
+                Save-Config $cfg
+                Write-Host "Provider set to: DeepSeek" -ForegroundColor Green
+                Start-Sleep -Seconds 1
+                return
             }
             "b" { return }
             default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }
     }
-}# ============================================
+}
+
+function Show-DeepSeekModelPicker {
+    while ($true) {
+        Clear-Host
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host "       DeepSeek Model Settings" -ForegroundColor Green
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host ""
+        $cfg = Get-Config
+        Write-Host "Current DeepSeek model: $($cfg.deepseekModel)" -ForegroundColor Cyan
+        if ($cfg.deepseekApiKey) {
+            $masked = $cfg.deepseekApiKey.Substring(0, [Math]::Min(8, $cfg.deepseekApiKey.Length)) + "..."
+            Write-Host "API key: $masked" -ForegroundColor DarkGray
+        } else {
+            Write-Host "API key: NOT SET" -ForegroundColor Red
+        }
+        Write-Host ""
+        Write-Host "Options:" -ForegroundColor Cyan
+        Write-Host "  [1] DeepSeek V4 (Recommended)  -> deepseek-chat" -ForegroundColor Yellow
+        Write-Host "  [2] DeepSeek R1 (Flash)        -> deepseek-reasoner" -ForegroundColor Yellow
+        Write-Host "  [3] Manual Entry (type a model name)" -ForegroundColor Yellow
+        Write-Host "  [S] Set / Update API Key" -ForegroundColor Yellow
+        Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
+        Write-Host ""
+        $choice = Read-Host "Enter your choice"
+        switch ($choice.ToLower()) {
+            "1" {
+                $cfg = Get-Config
+                $cfg.deepseekModel = "deepseek-chat"
+                Save-Config $cfg
+                Write-Host "DeepSeek model set to: deepseek-chat (V4)" -ForegroundColor Green
+                Start-Sleep -Seconds 1
+            }
+            "2" {
+                $cfg = Get-Config
+                $cfg.deepseekModel = "deepseek-reasoner"
+                Save-Config $cfg
+                Write-Host "DeepSeek model set to: deepseek-reasoner (R1 Flash)" -ForegroundColor Green
+                Start-Sleep -Seconds 1
+            }
+            "3" {
+                $manual = Read-Host "Enter the DeepSeek model name (e.g., deepseek-chat)"
+                if ($manual) {
+                    $cfg = Get-Config
+                    $cfg.deepseekModel = $manual.Trim()
+                    Save-Config $cfg
+                    Write-Host "DeepSeek model set to: $($cfg.deepseekModel)" -ForegroundColor Green
+                    Start-Sleep -Seconds 1
+                }
+            }
+            "s" {
+                Set-DeepSeekApiKey
+            }
+            "b" { return }
+            default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        }
+    }
+}
+
+function Set-DeepSeekApiKey {
+    Clear-Host
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "       DeepSeek API Key Setup" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+    $cfg = Get-Config
+    if ($cfg.deepseekApiKey) {
+        $masked = $cfg.deepseekApiKey.Substring(0, [Math]::Min(8, $cfg.deepseekApiKey.Length)) + "..."
+        Write-Host "Current key: $masked" -ForegroundColor DarkGray
+    } else {
+        Write-Host "Current key: NOT SET" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    $key = Read-Host "Enter your DeepSeek API key (or press Enter to cancel)"
+    if ($key) {
+        $cfg = Get-Config
+        $cfg.deepseekApiKey = $key.Trim()
+        Save-Config $cfg
+        Write-Host "DeepSeek API key updated." -ForegroundColor Green
+    } else {
+        Write-Host "API key unchanged." -ForegroundColor Yellow
+    }
+    Start-Sleep -Seconds 1
+}
+
+# ============================================
 # Launch
 # ============================================
 function Launch-Codex([string[]]$passArgs) {
     $cfg = Get-Config
-    $model = $cfg.selectedModel
-    $cmdParts = @("ollama", "launch", "codex")
+
+    if ($cfg.provider -eq "deepseek") {
+        if ([string]::IsNullOrWhiteSpace($cfg.deepseekApiKey)) {
+            Write-Host "DeepSeek API key is not set. Please set it in the model picker first." -ForegroundColor Red
+            Read-Host "Press Enter to return to menu"
+            return
+        }
+        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com"
+        $model = $cfg.deepseekModel
+        $cmdParts = @("codex")
+    } else {
+        $model = $cfg.selectedModel
+        $cmdParts = @("ollama", "launch", "codex")
+    }
 
     if ($passArgs -and $passArgs.Count -gt 0) {
         $hasModel = $false
@@ -611,9 +778,11 @@ function Launch-Codex([string[]]$passArgs) {
     Write-Host "`n>>> $cmdString" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
 
-    if (-not (Start-OllamaServer)) {
-        Read-Host "Press Enter to return to menu"
-        return
+    if ($cfg.provider -eq "ollama") {
+        if (-not (Start-OllamaServer)) {
+            Read-Host "Press Enter to return to menu"
+            return
+        }
     }
 
     Clear-Host
@@ -688,7 +857,16 @@ function Show-Status {
     } else {
         Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
     }
+    Write-Host "  Provider      : $($cfg.provider)" -ForegroundColor Cyan
     Write-Host "  Config model  : $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
+    if ($cfg.provider -eq "deepseek") {
+        Write-Host "  DeepSeek model: $($cfg.deepseekModel)" -ForegroundColor Cyan
+        if ($cfg.deepseekApiKey) {
+            Write-Host "  DeepSeek key  : SET" -ForegroundColor Green
+        } else {
+            Write-Host "  DeepSeek key  : NOT SET" -ForegroundColor Red
+        }
+    }
     Write-Host "  Full-auto     : $(if ($cfg.fullAuto) { 'ON (--yolo)' } else { 'OFF' })" -ForegroundColor Cyan
     Write-Host "=================================================" -ForegroundColor Cyan
 }
@@ -717,6 +895,9 @@ function Show-MainMenu {
     Write-Host "[2] Install / Update Ollama" -ForegroundColor White
     if ($ollamaUpdate) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
     Write-Host "[3] Pick / Change Model  [current: $($cfg.selectedModel)]" -ForegroundColor White
+    if ($cfg.provider -eq "deepseek") {
+        Write-Host "     DeepSeek model: $($cfg.deepseekModel)" -ForegroundColor DarkGray
+    }
     if ($cfg.source -eq "cloud" -and $oExists) {
         Write-Host "[4] Pull Selected Model Locally (ollama pull)" -ForegroundColor White
     } else {
@@ -754,6 +935,7 @@ if ($args.Count -gt 0) {
     }
 
     $cfg = Get-Config
+
     if (-not $cfg.skipUpdateCheck) {
         $cInst = Get-CodexInstalledVersion
         $cLat  = Get-CodexLatestVersion
@@ -765,15 +947,24 @@ if ($args.Count -gt 0) {
                 Write-Host "Codex update available: v$cInst -> v$cLat. Run launcher menu to update." -ForegroundColor Yellow
             }
         }
+    }
+
+    if ($cfg.provider -eq "ollama") {
         $oInst = Get-OllamaInstalledVersion
         $oLat  = Get-OllamaLatestVersion
         if (Compare-Versions $oInst $oLat) {
             Write-Host "Ollama update available: v$oInst -> v$oLat. Run launcher menu to update." -ForegroundColor Yellow
         }
-    }
-
-    if (-not (Start-OllamaServer)) {
-        exit 1
+        if (-not (Start-OllamaServer)) {
+            exit 1
+        }
+    } else {
+        if ([string]::IsNullOrWhiteSpace($cfg.deepseekApiKey)) {
+            Write-Host "DeepSeek API key is not set. Run the launcher menu to configure." -ForegroundColor Red
+            exit 1
+        }
+        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com"
     }
 
     Clear-Host
@@ -859,7 +1050,7 @@ while ($true) {
             if (-not (Test-CommandExists "codex")) {
                 Write-Host "Codex CLI not installed. Install first (option 1)." -ForegroundColor Red
                 Read-Host "Press Enter to continue"
-            } elseif (-not (Test-CommandExists "ollama")) {
+            } elseif ((Get-Config).provider -eq "ollama" -and -not (Test-CommandExists "ollama")) {
                 Write-Host "Ollama not installed. Install first (option 2)." -ForegroundColor Red
                 Read-Host "Press Enter to continue"
             } else {

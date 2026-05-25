@@ -24,6 +24,9 @@ $script:DefaultConfig = @{
     source           = "cloud"   # "cloud" or "local"
     skipPermissions  = $true     # if true, adds --dangerously-skip-permissions
     customCommand    = ""        # e.g. "ollama launch claude" or leave empty for default
+    provider         = "ollama"  # "ollama" or "deepseek"
+    deepseekModel    = "deepseek-chat"
+    deepseekApiKey   = ""
 }
 
 # ============================================
@@ -38,6 +41,9 @@ function Get-Config {
             if (-not $cfg.PSObject.Properties["source"])            { $cfg | Add-Member -NotePropertyName source -NotePropertyValue $script:DefaultConfig.source }
             if (-not $cfg.PSObject.Properties["skipPermissions"])  { $cfg | Add-Member -NotePropertyName skipPermissions -NotePropertyValue $script:DefaultConfig.skipPermissions }
             if (-not $cfg.PSObject.Properties["customCommand"])    { $cfg | Add-Member -NotePropertyName customCommand -NotePropertyValue $script:DefaultConfig.customCommand }
+            if (-not $cfg.PSObject.Properties["provider"])         { $cfg | Add-Member -NotePropertyName provider -NotePropertyValue $script:DefaultConfig.provider }
+            if (-not $cfg.PSObject.Properties["deepseekModel"])    { $cfg | Add-Member -NotePropertyName deepseekModel -NotePropertyValue $script:DefaultConfig.deepseekModel }
+            if (-not $cfg.PSObject.Properties["deepseekApiKey"])   { $cfg | Add-Member -NotePropertyName deepseekApiKey -NotePropertyValue $script:DefaultConfig.deepseekApiKey }
             return $cfg
         } catch {
             return New-Object PSObject -Property $script:DefaultConfig
@@ -320,6 +326,124 @@ function Get-LocalModels {
 }
 
 # ============================================
+# Provider Menus
+# ============================================
+
+function Show-ProviderMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host "         Select Provider" -ForegroundColor Green
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host ""
+
+        $cfg = Get-Config
+        Write-Host "Current provider: $($cfg.provider)" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  [1] Ollama (local + cloud models)" -ForegroundColor Yellow
+        Write-Host "  [2] DeepSeek (API-based)" -ForegroundColor Yellow
+        Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
+        Write-Host ""
+
+        $choice = Read-Host "Enter your choice"
+        switch ($choice.ToLower()) {
+            "1" {
+                $cfg = Get-Config
+                $cfg.provider = "ollama"
+                Save-Config $cfg
+                Write-Host "Provider set to: Ollama" -ForegroundColor Green
+                Read-Host "Press Enter to continue"
+                return
+            }
+            "2" {
+                $cfg = Get-Config
+                $cfg.provider = "deepseek"
+                Save-Config $cfg
+                Write-Host "Provider set to: DeepSeek" -ForegroundColor Green
+                Read-Host "Press Enter to continue"
+                return
+            }
+            "b" { return }
+            default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        }
+    }
+}
+
+function Show-DeepSeekModelPicker {
+    Clear-Host
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "   DeepSeek Model Selection" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+
+    $cfg = Get-Config
+    Write-Host "Current DeepSeek model: $($cfg.deepseekModel)" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  [1] DeepSeek-V4 (recommended) -> deepseek-chat" -ForegroundColor Yellow
+    Write-Host "  [2] DeepSeek-Flash             -> deepseek-chat" -ForegroundColor Yellow
+    Write-Host "  [M] Manual entry (custom model ID)" -ForegroundColor Yellow
+    Write-Host "  [B] Back to menu" -ForegroundColor Magenta
+    Write-Host ""
+
+    $choice = Read-Host "Enter your choice"
+    switch ($choice.ToLower()) {
+        "1" {
+            $cfg = Get-Config
+            $cfg.deepseekModel = "deepseek-chat"
+            Save-Config $cfg
+            Write-Host "DeepSeek model set to: deepseek-chat (V4)" -ForegroundColor Green
+            Read-Host "Press Enter to continue"
+        }
+        "2" {
+            $cfg = Get-Config
+            $cfg.deepseekModel = "deepseek-chat"
+            Save-Config $cfg
+            Write-Host "DeepSeek model set to: deepseek-chat (Flash)" -ForegroundColor Green
+            Read-Host "Press Enter to continue"
+        }
+        "m" {
+            $manual = Read-Host "Enter the DeepSeek model ID (e.g., deepseek-chat, deepseek-reasoner)"
+            if ($manual) {
+                $cfg = Get-Config
+                $cfg.deepseekModel = $manual
+                Save-Config $cfg
+                Write-Host "DeepSeek model set to: $manual" -ForegroundColor Green
+            }
+            Read-Host "Press Enter to continue"
+        }
+        "b" { return }
+        default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+    }
+}
+
+function Set-DeepSeekApiKey {
+    Clear-Host
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "   Set DeepSeek API Key" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+
+    $cfg = Get-Config
+    $maskedKey = if ($cfg.deepseekApiKey) {
+        $key = $cfg.deepseekApiKey
+        if ($key.Length -gt 8) { $key.Substring(0,4) + "..." + $key.Substring($key.Length - 4) } else { "(set, hidden)" }
+    } else { "(not set)" }
+    Write-Host "Current API key: $maskedKey" -ForegroundColor Cyan
+    Write-Host ""
+
+    $newKey = Read-Host "Enter DeepSeek API Key (or leave blank to keep current)"
+    if ($newKey.Trim()) {
+        $cfg = Get-Config
+        $cfg.deepseekApiKey = $newKey.Trim()
+        Save-Config $cfg
+        Write-Host "DeepSeek API key saved." -ForegroundColor Green
+    } else {
+        Write-Host "API key unchanged." -ForegroundColor Yellow
+    }
+    Read-Host "Press Enter to continue"
+}
+
+# ============================================
 # Model Picker Menus
 # ============================================
 
@@ -440,33 +564,83 @@ function Show-ModelPicker {
 
         $cfg = Get-Config
         Write-Host "Current selection:" -ForegroundColor Cyan
-        Write-Host "  Model : $($cfg.selectedModel)" -ForegroundColor White
-        Write-Host "  Source: $($cfg.source)" -ForegroundColor White
+        Write-Host "  Provider: $($cfg.provider)" -ForegroundColor White
+        if ($cfg.provider -eq "deepseek") {
+            Write-Host "  Model   : $($cfg.deepseekModel)" -ForegroundColor White
+            $dsKeyStatus = if ($cfg.deepseekApiKey) { "**** (set)" } else { "(not set)" }
+            Write-Host "  API Key : $dsKeyStatus" -ForegroundColor White
+        } else {
+            Write-Host "  Model   : $($cfg.selectedModel)" -ForegroundColor White
+            Write-Host "  Source  : $($cfg.source)" -ForegroundColor White
+        }
         Write-Host ""
         Write-Host "Options:" -ForegroundColor Cyan
-        Write-Host "  [1] Browse Cloud Models (Ollama Registry)" -ForegroundColor Yellow
-        Write-Host "  [2] Browse Local Models (this PC)" -ForegroundColor Yellow
-        Write-Host "  [3] Manual Entry (type any model name)" -ForegroundColor Yellow
-        Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
-        Write-Host ""
 
-        $choice = Read-Host "Enter your choice"
-        switch ($choice.ToLower()) {
-            "1" { Show-CloudModelMenu }
-            "2" { Show-LocalModelMenu }
-            "3" {
-                $manual = Read-Host "Enter the full model name (e.g., ollama/llama3, kimi-k2.6:cloud, llama3.3:latest)"
-                if ($manual) {
+        if ($cfg.provider -eq "deepseek") {
+            Write-Host "  [1] Switch to Ollama Provider" -ForegroundColor Yellow
+            Write-Host "  [2] Pick DeepSeek Model (V4 / Flash)" -ForegroundColor Yellow
+            Write-Host "  [3] Set DeepSeek API Key" -ForegroundColor Yellow
+            Write-Host "  [4] Manual Model Entry" -ForegroundColor Yellow
+            Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
+            Write-Host ""
+
+            $choice = Read-Host "Enter your choice"
+            switch ($choice.ToLower()) {
+                "1" {
                     $cfg = Get-Config
-                    $cfg.selectedModel = $manual
-                    $cfg.source = "manual"
+                    $cfg.provider = "ollama"
                     Save-Config $cfg
-                    Write-Host "Model set to: $manual" -ForegroundColor Green
+                    Write-Host "Switched to Ollama provider." -ForegroundColor Green
                     Read-Host "Press Enter to continue"
                 }
+                "2" { Show-DeepSeekModelPicker }
+                "3" { Set-DeepSeekApiKey }
+                "4" {
+                    $manual = Read-Host "Enter the full model ID (e.g., deepseek-chat, deepseek-reasoner)"
+                    if ($manual) {
+                        $cfg = Get-Config
+                        $cfg.deepseekModel = $manual
+                        Save-Config $cfg
+                        Write-Host "DeepSeek model set to: $manual" -ForegroundColor Green
+                        Read-Host "Press Enter to continue"
+                    }
+                }
+                "b" { return }
+                default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
             }
-            "b" { return }
-            default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        } else {
+            Write-Host "  [1] Switch to DeepSeek Provider" -ForegroundColor Yellow
+            Write-Host "  [2] Browse Cloud Models (Ollama Registry)" -ForegroundColor Yellow
+            Write-Host "  [3] Browse Local Models (this PC)" -ForegroundColor Yellow
+            Write-Host "  [4] Manual Entry (type any model name)" -ForegroundColor Yellow
+            Write-Host "  [B] Back to Main Menu" -ForegroundColor Magenta
+            Write-Host ""
+
+            $choice = Read-Host "Enter your choice"
+            switch ($choice.ToLower()) {
+                "1" {
+                    $cfg = Get-Config
+                    $cfg.provider = "deepseek"
+                    Save-Config $cfg
+                    Write-Host "Switched to DeepSeek provider." -ForegroundColor Green
+                    Read-Host "Press Enter to continue"
+                }
+                "2" { Show-CloudModelMenu }
+                "3" { Show-LocalModelMenu }
+                "4" {
+                    $manual = Read-Host "Enter the full model name (e.g., ollama/llama3, kimi-k2.6:cloud, llama3.3:latest)"
+                    if ($manual) {
+                        $cfg = Get-Config
+                        $cfg.selectedModel = $manual
+                        $cfg.source = "manual"
+                        Save-Config $cfg
+                        Write-Host "Model set to: $manual" -ForegroundColor Green
+                        Read-Host "Press Enter to continue"
+                    }
+                }
+                "b" { return }
+                default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+            }
         }
     }
 }
@@ -530,6 +704,42 @@ function Start-OllamaServer {
 
 function Launch-ClaudeOllama {
     $cfg = Get-Config
+
+    if ($cfg.provider -eq "deepseek") {
+        if (-not $cfg.deepseekApiKey) {
+            Write-Host "ERROR: DeepSeek API key is not set. Use menu option 3 to set it." -ForegroundColor Red
+            Read-Host "Press Enter to return to menu"
+            return
+        }
+
+        Clear-Host
+        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
+
+        $cmdParts = @("claude")
+        $cmdParts += "--model"
+        $cmdParts += $cfg.deepseekModel
+        if ($cfg.skipPermissions) {
+            $cmdParts += "--dangerously-skip-permissions"
+        }
+
+        $cmdString = $cmdParts -join ' '
+        Write-Host "`n>>> DeepSeek | $cmdString" -ForegroundColor Green
+        Write-Host ("-" * 50) -ForegroundColor DarkGray
+
+        Clear-Host
+        try {
+            $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Host "Claude Code exited with code $($proc.ExitCode)." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "ERROR launching Claude: $_" -ForegroundColor Red
+        }
+        Read-Host "Claude Code session ended. Press Enter to return to menu"
+        return
+    }
+
     $model = $cfg.selectedModel
 
     # Ensure Ollama server is running before launch
@@ -539,7 +749,6 @@ function Launch-ClaudeOllama {
     }
 
     Clear-Host
-    $modeText = if ($cfg.skipPermissions) { "skip-permissions" } else { "normal" }
 
     # Build command exactly like the working manual command:
     # ollama launch claude --model <model> -- <claude-args>
@@ -640,6 +849,12 @@ function Show-Status {
     } else {
         Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
     }
+    Write-Host "  Provider      : $($cfg.provider)" -ForegroundColor Cyan
+    if ($cfg.provider -eq "deepseek") {
+        Write-Host "  DS Model      : $($cfg.deepseekModel)" -ForegroundColor Cyan
+        $dsKeyStatus = if ($cfg.deepseekApiKey) { "**** (set)" } else { "(not set)" }
+        Write-Host "  DS API Key    : $dsKeyStatus" -ForegroundColor Cyan
+    }
     Write-Host "  Config model  : $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
     $permText = if ($cfg.skipPermissions) { "ON (--dangerously-skip-permissions)" } else { "OFF" }
     Write-Host "  Skip-perms    : $permText" -ForegroundColor Cyan
@@ -675,15 +890,17 @@ function Show-MainMenu {
     if ($claudeUpdate) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
     Write-Host "[2] Install / Update Ollama" -ForegroundColor White
     if ($ollamaUpdate) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
-    Write-Host "[3] Pick / Change Model  [current: $($cfg.selectedModel)]" -ForegroundColor White
-    if ($cfg.source -eq "cloud" -and $oExists) {
+    Write-Host "[3] Pick / Change Model  [current: $(if ($cfg.provider -eq "deepseek") { $cfg.deepseekModel } else { $cfg.selectedModel })]" -ForegroundColor White
+    if ($cfg.source -eq "cloud" -and $oExists -and $cfg.provider -eq "ollama") {
         Write-Host "[4] Pull Selected Model Locally (ollama pull)" -ForegroundColor White
     } else {
         Write-Host "[4] Pull Selected Model Locally [not applicable]" -ForegroundColor DarkGray
     }
-    Write-Host "[5] Launch Claude Code" -ForegroundColor Green
+    $launchLabel = if ($cfg.provider -eq "deepseek") { "DeepSeek -> Claude" } else { "Ollama -> Claude" }
+    Write-Host "[5] Launch Claude Code [$launchLabel]" -ForegroundColor Green
     Write-Host "[6] Check / Fix Ollama Sign-in" -ForegroundColor White
     Write-Host "[7] Refresh Status" -ForegroundColor White
+    Write-Host "[8] Switch Provider [current: $($cfg.provider)]" -ForegroundColor White
     $cmdLabel = if ($cfg.customCommand) { "[custom: $($cfg.customCommand)]" } else { "[default: claude]" }
     Write-Host "[C] Set Custom Launch Command $cmdLabel" -ForegroundColor White
     $toggleLabel = if ($cfg.skipPermissions) { "ON -> switch to normal mode" } else { "OFF -> switch to skip-perms mode" }
@@ -752,10 +969,11 @@ while ($true) {
             }
         }
         "5" {
+            $cfg = Get-Config
             if (-not (Test-CommandExists "claude")) {
                 Write-Host "ERROR: Claude Code is not installed. Please install it first (Menu option 1)." -ForegroundColor Red
                 Read-Host "Press Enter to return to menu"
-            } elseif (-not (Test-CommandExists "ollama")) {
+            } elseif ($cfg.provider -eq "ollama" -and -not (Test-CommandExists "ollama")) {
                 Write-Host "ERROR: Ollama is not installed. Please install it first (Menu option 2)." -ForegroundColor Red
                 Read-Host "Press Enter to return to menu"
             } else {
@@ -772,6 +990,9 @@ while ($true) {
             Save-VersionCache $cache
             Write-Host "Version cache cleared." -ForegroundColor Green
             Start-Sleep -Seconds 1
+        }
+        "8" {
+            Show-ProviderMenu
         }
         "c" {
             $cfg = Get-Config

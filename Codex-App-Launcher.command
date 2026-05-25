@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # ============================================================
-#  Codex + Ollama Launcher for macOS
-#  Interactive menu + direct launch for OpenAI Codex CLI
-#  through Ollama with any cloud or local model.
+#  Codex App Launcher for macOS
+#  Interactive menu + direct launch for Codex App
+#  through Ollama or DeepSeek API with model picker.
 # ============================================================
 
 # macOS PATH often misses Homebrew bins when opened via double-click
@@ -30,20 +30,19 @@ else
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 fi
 
-CONFIG_FILE="$SCRIPT_DIR/Codex-Launcher.config.json"
-VERSION_CACHE="$SCRIPT_DIR/Codex-Launcher.versions.json"
+CONFIG_FILE="$SCRIPT_DIR/Codex-App-Launcher.config.json"
+VERSION_CACHE="$SCRIPT_DIR/Codex-App-Launcher.versions.json"
 CACHE_TTL_MINUTES=60
 
 # --- Defaults ---
-DEFAULT_MODEL="kimi-k2.6:cloud"
+DEFAULT_PROVIDER="ollama"
+DEFAULT_OLLAMA_MODEL="kimi-k2.6:cloud"
 DEFAULT_SOURCE="cloud"
-DEFAULT_FULLAUTO="true"
+DEFAULT_DEEPSEEK_MODEL="deepseek-chat"
+DEFAULT_DEEPSEEK_KEY=""
 DEFAULT_CUSTOMARGS=""
 DEFAULT_AUTOUPDATE="false"
 DEFAULT_SKIPUPDATE="false"
-DEFAULT_PROVIDER="ollama"
-DEFAULT_DEEPSEEK_MODEL="deepseek-chat"
-DEFAULT_DEEPSEEK_KEY=""
 
 # --- Colors ---
 CLR_RESET='\033[0m'
@@ -58,14 +57,14 @@ CLR_GRAY='\033[0;37m'
 # --- Lowercase helper (bash 3.2 compatible) ---
 lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 
-# --- Safe read helper (prevents set -e / set -u issues on EOF) ---
+# --- Safe read helper ---
 ask() {
     printf -v "$2" '%s' ''
     read -rp "$1" "$2" || true
 }
 
 # ============================================================
-#  JSON Helpers (python3 is pre-installed on macOS)
+#  JSON Helpers
 # ============================================================
 function json_read() {
     local file="$1" key="$2" default="${3:-}"
@@ -114,12 +113,12 @@ function ensure_config() {
     if [[ ! -f "$CONFIG_FILE" ]]; then
         python3 -c "
 import json
-d={'selectedModel':'$DEFAULT_MODEL','source':'$DEFAULT_SOURCE','fullAuto':True,'customArgs':'','autoUpdate':False,'skipUpdateCheck':False,'provider':'$DEFAULT_PROVIDER','deepseekModel':'$DEFAULT_DEEPSEEK_MODEL','deepseekApiKey':'$DEFAULT_DEEPSEEK_KEY'}
+d={'provider':'$DEFAULT_PROVIDER','ollamaModel':'$DEFAULT_OLLAMA_MODEL','source':'$DEFAULT_SOURCE','deepseekModel':'$DEFAULT_DEEPSEEK_MODEL','deepseekApiKey':'','customArgs':'','autoUpdate':False,'skipUpdateCheck':False}
 with open('$CONFIG_FILE','w') as f: json.dump(d,f,indent=2)
 " 2>/dev/null
     else
         local missing=0
-        for key in selectedModel source fullAuto customArgs autoUpdate skipUpdateCheck provider deepseekModel deepseekApiKey; do
+        for key in provider ollamaModel source deepseekModel deepseekApiKey customArgs autoUpdate skipUpdateCheck; do
             local val
             val=$(json_read "$CONFIG_FILE" "$key" "__MISSING__")
             if [[ "$val" == "__MISSING__" ]]; then missing=1; fi
@@ -127,7 +126,7 @@ with open('$CONFIG_FILE','w') as f: json.dump(d,f,indent=2)
         if [[ "$missing" == "1" ]]; then
             python3 -c "
 import json, os
-d={'selectedModel':'$DEFAULT_MODEL','source':'$DEFAULT_SOURCE','fullAuto':True,'customArgs':'','autoUpdate':False,'skipUpdateCheck':False,'provider':'$DEFAULT_PROVIDER','deepseekModel':'$DEFAULT_DEEPSEEK_MODEL','deepseekApiKey':'$DEFAULT_DEEPSEEK_KEY'}
+d={'provider':'$DEFAULT_PROVIDER','ollamaModel':'$DEFAULT_OLLAMA_MODEL','source':'$DEFAULT_SOURCE','deepseekModel':'$DEFAULT_DEEPSEEK_MODEL','deepseekApiKey':'','customArgs':'','autoUpdate':False,'skipUpdateCheck':False}
 if os.path.exists('$CONFIG_FILE'):
     try:
         with open('$CONFIG_FILE') as f: old=json.load(f)
@@ -316,38 +315,9 @@ function install_ollama() {
     read -rp "Press Enter to continue" || true
 }
 
-function pull_selected_model() {
-    local model
-    model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    echo -e "${CLR_CYAN}Pulling model '$model' into local Ollama...${CLR_RESET}"
-    if ollama pull "$model" 2>/dev/null; then
-        echo -e "${CLR_GREEN}Model '$model' pulled successfully.${CLR_RESET}"
-    else
-        echo -e "${CLR_RED}ERROR pulling model.${CLR_RESET}"
-    fi
-    read -rp "Press Enter to continue" || true
-}
-
 # ============================================================
-#  Auth / Server Helpers
+#  Ollama Server Helpers
 # ============================================================
-function test_ollama_auth() {
-    ollama list &>/dev/null && return 0 || return 1
-}
-
-function check_ollama_signin() {
-    echo -e "${CLR_CYAN}Checking Ollama sign-in status...${CLR_RESET}"
-    if ollama list &>/dev/null; then
-        echo -e "${CLR_GREEN}Ollama appears configured. Local models:${CLR_RESET}"
-        ollama list 2>/dev/null | head -n 10 | while read -r line; do echo -e "${CLR_GRAY}  $line${CLR_RESET}"; done
-    else
-        echo -e "${CLR_YELLOW}Could not list Ollama models. You may need to run 'ollama signin'.${CLR_RESET}"
-        ask "Run 'ollama signin' now? (y/n) " ans
-        [[ "$(lc "$ans")" == "y" ]] && ollama signin
-    fi
-    read -rp "Press Enter to continue" || true
-}
-
 function test_ollama_running() {
     curl -fsSL --max-time 3 "http://localhost:11434/api/tags" &>/dev/null && return 0 || return 1
 }
@@ -370,7 +340,7 @@ function start_ollama_server() {
 }
 
 # ============================================================
-#  Model Fetchers
+#  Model Fetchers (Ollama)
 # ============================================================
 function fetch_cloud_models() {
     echo -e "${CLR_GRAY}Fetching top 10 newest models from Ollama cloud registry...${CLR_RESET}"
@@ -411,131 +381,62 @@ except: pass
 }
 
 # ============================================================
-#  Provider & DeepSeek Menus
+#  Provider Setup
 # ============================================================
-function set_deepseek_key() {
-    clear
-    echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-    echo -e "${CLR_GREEN}     DeepSeek API Key${CLR_RESET}"
-    echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-    echo ""
-    local cur
-    cur=$(config_get "deepseekApiKey" "")
-    if [[ -n "$cur" ]]; then
-        local masked="${cur:0:4}****${cur: -4}"
-        echo -e "${CLR_CYAN}Current key: $masked${CLR_RESET}"
-    else
-        echo -e "${CLR_YELLOW}No API key currently set.${CLR_RESET}"
-    fi
-    echo ""
-    ask "Enter new DeepSeek API key (or blank to keep current): " newkey
-    if [[ -n "$newkey" ]]; then
-        config_set "deepseekApiKey" "$newkey"
-        echo -e "${CLR_GREEN}DeepSeek API key updated.${CLR_RESET}"
-    else
-        echo -e "${CLR_GRAY}Key unchanged.${CLR_RESET}"
-    fi
-    read -rp "Press Enter to continue" || true
-}
-
 function show_provider_menu() {
     while true; do
         clear
         echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}         Choose AI Provider${CLR_RESET}"
+        echo -e "${CLR_GREEN}         Choose API Provider${CLR_RESET}"
         echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
         echo ""
-        local cur
-        cur=$(config_get "provider" "$DEFAULT_PROVIDER")
-        echo -e "${CLR_CYAN}Current provider: $cur${CLR_RESET}"
+        local provider
+        provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+        echo -e "${CLR_CYAN}Current provider: $(echo "$provider" | tr '[:lower:]' '[:upper:]')${CLR_RESET}"
         echo ""
-        echo -e "  [1] Ollama (local/cloud models via Ollama) ${CLR_YELLOW}"
-        echo -e "  [2] DeepSeek (cloud API) ${CLR_YELLOW}"
+        echo -e "${CLR_CYAN}Options:${CLR_RESET}"
+        echo -e "  [1] Ollama - Use Ollama cloud/local models ${CLR_YELLOW}"
+        echo -e "  [2] DeepSeek - Use DeepSeek API (bring your own key) ${CLR_YELLOW}"
         echo -e "  [B] Back to Main Menu ${CLR_MAGENTA}"
         echo ""
         ask "Enter your choice: " choice
         case "$(lc "$choice")" in
-            b) return ;;
             1)
                 config_set "provider" "ollama"
-                echo -e "${CLR_GREEN}Provider set to: Ollama${CLR_RESET}"
-                read -rp "Press Enter to continue" || true
+                echo -e "${CLR_GREEN}Provider set to: OLLAMA${CLR_RESET}"
+                sleep 1
                 return
                 ;;
             2)
                 config_set "provider" "deepseek"
-                echo -e "${CLR_GREEN}Provider set to: DeepSeek${CLR_RESET}"
                 local key
                 key=$(config_get "deepseekApiKey" "")
                 if [[ -z "$key" ]]; then
-                    echo -e "${CLR_YELLOW}No DeepSeek API key set. You'll need one to use DeepSeek.${CLR_RESET}"
-                    ask "Enter your DeepSeek API key now? (y/n) " ans
-                    [[ "$(lc "$ans")" == "y" ]] && set_deepseek_key
+                    echo ""
+                    echo -e "${CLR_YELLOW}DeepSeek API key required.${CLR_RESET}"
+                    echo -e "${CLR_CYAN}Get your key at: https://platform.deepseek.com/api_keys${CLR_RESET}"
+                    ask "Enter your DeepSeek API key (starts with 'sk-'): " key
+                    if [[ -n "$key" ]]; then
+                        config_set "deepseekApiKey" "$key"
+                    else
+                        echo -e "${CLR_YELLOW}No key entered. You can set it later from the menu.${CLR_RESET}"
+                        sleep 2
+                    fi
                 fi
-                read -rp "Press Enter to continue" || true
+                echo -e "${CLR_GREEN}Provider set to: DEEPSEEK${CLR_RESET}"
+                sleep 1
                 return
                 ;;
-            *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
-        esac
-    done
-}
-
-function show_deepseek_model_picker() {
-    while true; do
-        clear
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}     DeepSeek Model Selection${CLR_RESET}"
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo ""
-        local cur
-        cur=$(config_get "selectedModel" "$DEFAULT_DEEPSEEK_MODEL")
-        echo -e "${CLR_CYAN}Current DeepSeek model: $cur${CLR_RESET}"
-        echo ""
-        echo -e "  [1] DeepSeek V4 (Recommended)       ${CLR_YELLOW}deepseek-chat${CLR_RESET}"
-        echo -e "  [2] DeepSeek R1 (Flash/Reasoning)   ${CLR_YELLOW}deepseek-reasoner${CLR_RESET}"
-        echo -e "  [M] Manual Entry (type model name)  ${CLR_YELLOW}"
-        echo -e "  [S] Set / Update API Key            ${CLR_CYAN}"
-        echo -e "  [B] Back ${CLR_MAGENTA}"
-        echo ""
-        ask "Enter your choice: " choice
-        case "$(lc "$choice")" in
             b) return ;;
-            1)
-                config_set "selectedModel" "deepseek-chat"
-                config_set "source" "deepseek"
-                echo -e "${CLR_GREEN}Selected: deepseek-chat (DeepSeek V4)${CLR_RESET}"
-                read -rp "Press Enter to continue" || true
-                return
-                ;;
-            2)
-                config_set "selectedModel" "deepseek-reasoner"
-                config_set "source" "deepseek"
-                echo -e "${CLR_GREEN}Selected: deepseek-reasoner (DeepSeek R1)${CLR_RESET}"
-                read -rp "Press Enter to continue" || true
-                return
-                ;;
-            m)
-                ask "Enter DeepSeek model name: " manual
-                if [[ -n "$manual" ]]; then
-                    config_set "selectedModel" "$manual"
-                    config_set "source" "deepseek"
-                    echo -e "${CLR_GREEN}DeepSeek model set to: $manual${CLR_RESET}"
-                fi
-                read -rp "Press Enter to continue" || true
-                return
-                ;;
-            s)
-                set_deepseek_key
-                ;;
             *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
         esac
     done
 }
 
 # ============================================================
-#  Model Picker Menus
+#  Ollama Model Picker
 # ============================================================
-function show_cloud_model_menu() {
+function show_ollama_cloud_menu() {
     while true; do
         clear
         echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
@@ -559,8 +460,8 @@ function show_cloud_model_menu() {
             ((i++))
         done
         echo ""
-        echo -e "  [M] Manual entry (type a model name yourself) ${CLR_YELLOW}"
-        echo -e "  [B] Back to main menu ${CLR_MAGENTA}"
+        echo -e "  [M] Manual entry ${CLR_YELLOW}"
+        echo -e "  [B] Back ${CLR_MAGENTA}"
         echo ""
         ask "Select a cloud model by number, or M/B: " choice
         case "$(lc "$choice")" in
@@ -568,9 +469,9 @@ function show_cloud_model_menu() {
             m)
                 ask "Enter the full model name (e.g., kimi-k2.6:cloud): " manual
                 if [[ -n "$manual" ]]; then
-                    config_set "selectedModel" "$manual"
+                    config_set "ollamaModel" "$manual"
                     config_set "source" "cloud"
-                    echo -e "${CLR_GREEN}Selected cloud model: $manual${CLR_RESET}"
+                    echo -e "${CLR_GREEN}Selected: $manual${CLR_RESET}"
                 fi
                 read -rp "Press Enter to continue" || true
                 return
@@ -580,9 +481,9 @@ function show_cloud_model_menu() {
             local arr_idx=$(( (choice-1)*3 ))
             if [[ $arr_idx -ge 0 && $arr_idx -lt ${#models[@]} ]]; then
                 local sel="${models[arr_idx]}"
-                config_set "selectedModel" "$sel"
+                config_set "ollamaModel" "$sel"
                 config_set "source" "cloud"
-                echo -e "${CLR_GREEN}Selected cloud model: $sel${CLR_RESET}"
+                echo -e "${CLR_GREEN}Selected: $sel${CLR_RESET}"
             else
                 echo -e "${CLR_RED}Invalid selection.${CLR_RESET}"
             fi
@@ -593,7 +494,7 @@ function show_cloud_model_menu() {
     done
 }
 
-function show_local_model_menu() {
+function show_ollama_local_menu() {
     while true; do
         clear
         echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
@@ -605,7 +506,7 @@ function show_local_model_menu() {
             [[ -n "$name" ]] && models+=("$name" "$size" "$date")
         done < <(fetch_local_models)
         if [[ ${#models[@]} -eq 0 ]]; then
-            echo -e "${CLR_YELLOW}No local models found. You can pull one from the cloud first.${CLR_RESET}"
+            echo -e "${CLR_YELLOW}No local models found.${CLR_RESET}"
             read -rp "Press Enter to return" || true
             return
         fi
@@ -617,7 +518,7 @@ function show_local_model_menu() {
             ((i++))
         done
         echo ""
-        echo -e "  [B] Back to main menu ${CLR_MAGENTA}"
+        echo -e "  [B] Back ${CLR_MAGENTA}"
         echo ""
         ask "Select a local model by number, or B: " choice
         case "$(lc "$choice")" in
@@ -627,9 +528,9 @@ function show_local_model_menu() {
             local arr_idx=$(( (choice-1)*3 ))
             if [[ $arr_idx -ge 0 && $arr_idx -lt ${#models[@]} ]]; then
                 local sel="${models[arr_idx]}"
-                config_set "selectedModel" "$sel"
+                config_set "ollamaModel" "$sel"
                 config_set "source" "local"
-                echo -e "${CLR_GREEN}Selected local model: $sel${CLR_RESET}"
+                echo -e "${CLR_GREEN}Selected: $sel${CLR_RESET}"
             else
                 echo -e "${CLR_RED}Invalid selection.${CLR_RESET}"
             fi
@@ -640,184 +541,325 @@ function show_local_model_menu() {
     done
 }
 
-function show_model_picker() {
+function show_ollama_model_picker() {
     while true; do
         clear
         echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}         Pick / Change Model${CLR_RESET}"
+        echo -e "${CLR_GREEN}    Pick Ollama Model${CLR_RESET}"
         echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
         echo ""
-        local model source provider
-        model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-        source=$(config_get "source" "$DEFAULT_SOURCE")
-        provider=$(config_get "provider" "$DEFAULT_PROVIDER")
-        echo -e "${CLR_CYAN}Current selection:${CLR_RESET}"
-        echo -e "  Provider: $provider"
-        echo -e "  Model   : $model"
-        echo -e "  Source  : $source"
+        local model
+        model=$(config_get "ollamaModel" "$DEFAULT_OLLAMA_MODEL")
+        echo -e "${CLR_CYAN}Current model: $model${CLR_RESET}"
         echo ""
-        echo -e "${CLR_CYAN}Options:${CLR_RESET}"
-        if [[ "$(lc "$provider")" == "deepseek" ]]; then
-            echo -e "  [1] Browse DeepSeek Models ${CLR_YELLOW}"
-            echo -e "  [2] Manual Entry (type model name) ${CLR_YELLOW}"
-            echo -e "  [S] Set / Update DeepSeek API Key ${CLR_CYAN}"
-            echo -e "  [P] Switch Provider ${CLR_MAGENTA}"
+        echo -e "  [1] Browse Cloud Models ${CLR_YELLOW}"
+        echo -e "  [2] Browse Local Models ${CLR_YELLOW}"
+        echo -e "  [3] Manual Entry ${CLR_YELLOW}"
+        echo -e "  [B] Back ${CLR_MAGENTA}"
+        echo ""
+        ask "Enter your choice: " choice
+        case "$(lc "$choice")" in
+            1) show_ollama_cloud_menu ;;
+            2) show_ollama_local_menu ;;
+            3)
+                ask "Enter the full model name (e.g., kimi-k2.6:cloud): " manual
+                if [[ -n "$manual" ]]; then
+                    config_set "ollamaModel" "$manual"
+                    config_set "source" "manual"
+                    echo -e "${CLR_GREEN}Model set to: $manual${CLR_RESET}"
+                    read -rp "Press Enter to continue" || true
+                fi
+                ;;
+            b) return ;;
+            *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
+        esac
+    done
+}
+
+# ============================================================
+#  DeepSeek Model Picker
+# ============================================================
+function show_deepseek_model_picker() {
+    while true; do
+        clear
+        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
+        echo -e "${CLR_GREEN}    Pick DeepSeek Model${CLR_RESET}"
+        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
+        echo ""
+        local model
+        model=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
+        local label="$model"
+        case "$model" in
+            deepseek-chat) label="DeepSeek V4 (Recommended)" ;;
+            deepseek-reasoner) label="DeepSeek R1 (Flash/Reasoning)" ;;
+        esac
+        echo -e "${CLR_CYAN}Current model: $label${CLR_RESET}"
+        echo ""
+        echo -e "${CLR_CYAN}Available DeepSeek models:${CLR_RESET}"
+        echo -e "  [1] DeepSeek V4 (Recommended) - deepseek-chat ${CLR_YELLOW}"
+        echo -e "       Latest flagship chat model. Best for general coding. ${CLR_GRAY}"
+        echo -e "  [2] DeepSeek R1 (Flash)       - deepseek-reasoner ${CLR_YELLOW}"
+        echo -e "       Fast reasoning model. Best for complex logic. ${CLR_GRAY}"
+        echo -e "  [3] Manual Entry (type any DeepSeek model ID) ${CLR_YELLOW}"
+        echo ""
+        echo -e "  [S] Set / Update API Key ${CLR_WHITE}"
+        echo -e "  [B] Back to Model Menu ${CLR_MAGENTA}"
+        echo ""
+        ask "Enter your choice: " choice
+        case "$(lc "$choice")" in
+            1) config_set "deepseekModel" "deepseek-chat"; echo -e "${CLR_GREEN}Selected: DeepSeek V4${CLR_RESET}"; sleep 1 ;;
+            2) config_set "deepseekModel" "deepseek-reasoner"; echo -e "${CLR_GREEN}Selected: DeepSeek R1 (Flash)${CLR_RESET}"; sleep 1 ;;
+            3)
+                ask "Enter DeepSeek model ID (e.g., deepseek-chat): " manual
+                if [[ -n "$manual" ]]; then
+                    config_set "deepseekModel" "$manual"
+                    echo -e "${CLR_GREEN}Model set to: $manual${CLR_RESET}"
+                    read -rp "Press Enter to continue" || true
+                fi
+                ;;
+            s) set_deepseek_key ;;
+            b) return ;;
+            *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
+        esac
+    done
+}
+
+function set_deepseek_key() {
+    clear
+    echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
+    echo -e "${CLR_GREEN}    Set DeepSeek API Key${CLR_RESET}"
+    echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
+    echo ""
+    local key
+    key=$(config_get "deepseekApiKey" "")
+    if [[ -n "$key" ]]; then
+        local masked="${key:0:8}..."
+        echo -e "${CLR_CYAN}Current key: $masked${CLR_RESET}"
+    else
+        echo -e "${CLR_YELLOW}No API key set.${CLR_RESET}"
+    fi
+    echo ""
+    echo -e "${CLR_CYAN}Get your DeepSeek API key at: https://platform.deepseek.com/api_keys${CLR_RESET}"
+    echo ""
+    ask "Enter your DeepSeek API key (or leave blank to keep current): " key
+    if [[ -n "${key:-}" ]]; then
+        config_set "deepseekApiKey" "${key:-}"
+        echo -e "${CLR_GREEN}API key saved.${CLR_RESET}"
+    else
+        echo -e "${CLR_YELLOW}API key unchanged.${CLR_RESET}"
+    fi
+    sleep 1
+}
+
+# ============================================================
+#  Unified Model Menu
+# ============================================================
+function show_model_menu() {
+    while true; do
+        clear
+        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
+        echo -e "${CLR_GREEN}    Pick / Change Model${CLR_RESET}"
+        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
+        echo ""
+        local provider
+        provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+        echo -e "${CLR_CYAN}Provider: $(echo "$provider" | tr '[:lower:]' '[:upper:]')${CLR_RESET}"
+        if [[ "$provider" == "ollama" ]]; then
+            local omodel
+            omodel=$(config_get "ollamaModel" "$DEFAULT_OLLAMA_MODEL")
+            echo -e "Model   : $omodel"
         else
-            echo -e "  [1] Browse Cloud Models (Ollama Registry) ${CLR_YELLOW}"
-            echo -e "  [2] Browse Local Models (this Mac) ${CLR_YELLOW}"
-            echo -e "  [3] Manual Entry (type any model name) ${CLR_YELLOW}"
-            echo -e "  [P] Switch Provider ${CLR_MAGENTA}"
+            local dmodel
+            dmodel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
+            local dlabel="$dmodel"
+            case "$dmodel" in
+                deepseek-chat) dlabel="DeepSeek V4 (Recommended)" ;;
+                deepseek-reasoner) dlabel="DeepSeek R1 (Flash/Reasoning)" ;;
+            esac
+            echo -e "Model   : $dlabel"
+            local dkey
+            dkey=$(config_get "deepseekApiKey" "")
+            if [[ -n "$dkey" ]]; then
+                echo -e "API Key : ${dkey:0:8}..."
+            else
+                echo -e "${CLR_RED}API Key : NOT SET${CLR_RESET}"
+            fi
+        fi
+        echo ""
+        echo -e "  [1] Switch Provider (Ollama / DeepSeek) ${CLR_YELLOW}"
+        if [[ "$provider" == "ollama" ]]; then
+            echo -e "  [2] Browse Ollama Models ${CLR_YELLOW}"
+        else
+            echo -e "  [2] Pick DeepSeek Model ${CLR_YELLOW}"
+            echo -e "  [3] Set DeepSeek API Key ${CLR_YELLOW}"
         fi
         echo -e "  [B] Back to Main Menu ${CLR_MAGENTA}"
         echo ""
         ask "Enter your choice: " choice
         case "$(lc "$choice")" in
-            b) return ;;
-            p)
-                show_provider_menu
-                continue
+            1) show_provider_menu ;;
+            2)
+                provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+                if [[ "$provider" == "ollama" ]]; then
+                    show_ollama_model_picker
+                else
+                    show_deepseek_model_picker
+                fi
                 ;;
+            3)
+                provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+                if [[ "$provider" == "deepseek" ]]; then
+                    set_deepseek_key
+                fi
+                ;;
+            b) return ;;
+            *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
         esac
-        if [[ "$(lc "$provider")" == "deepseek" ]]; then
-            case "$(lc "$choice")" in
-                1) show_deepseek_model_picker ;;
-                2)
-                    ask "Enter DeepSeek model name: " manual
-                    if [[ -n "$manual" ]]; then
-                        config_set "selectedModel" "$manual"
-                        config_set "source" "deepseek"
-                        echo -e "${CLR_GREEN}DeepSeek model set to: $manual${CLR_RESET}"
-                        read -rp "Press Enter to continue" || true
-                    fi
-                    ;;
-                s) set_deepseek_key ;;
-                *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
-            esac
-        else
-            case "$(lc "$choice")" in
-                1) show_cloud_model_menu ;;
-                2) show_local_model_menu ;;
-                3)
-                    ask "Enter the full model name (e.g., kimi-k2.6:cloud, llama3.3:latest): " manual
-                    if [[ -n "$manual" ]]; then
-                        config_set "selectedModel" "$manual"
-                        config_set "source" "manual"
-                        echo -e "${CLR_GREEN}Model set to: $manual${CLR_RESET}"
-                        read -rp "Press Enter to continue" || true
-                    fi
-                    ;;
-                *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
-            esac
-        fi
     done
 }
 
 # ============================================================
-#  Launch
+#  Pull Model (Ollama)
 # ============================================================
-function launch_codex() {
+function pull_selected_model() {
+    local provider
+    provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+    if [[ "$provider" != "ollama" ]]; then
+        echo -e "${CLR_YELLOW}Pull is only available when using Ollama provider.${CLR_RESET}"
+        read -rp "Press Enter to continue" || true
+        return
+    fi
+    local model
+    model=$(config_get "ollamaModel" "$DEFAULT_OLLAMA_MODEL")
+    echo -e "${CLR_CYAN}Pulling model '$model' into local Ollama...${CLR_RESET}"
+    if ollama pull "$model" 2>/dev/null; then
+        echo -e "${CLR_GREEN}Model '$model' pulled successfully.${CLR_RESET}"
+    else
+        echo -e "${CLR_RED}ERROR pulling model.${CLR_RESET}"
+    fi
+    read -rp "Press Enter to continue" || true
+}
+
+# ============================================================
+#  Launch Codex App
+# ============================================================
+function launch_codex_app() {
     local -a passArgs=("$@")
-    local model provider
-    model=$(config_get "selectedModel" "$DEFAULT_MODEL")
+    local provider
     provider=$(config_get "provider" "$DEFAULT_PROVIDER")
 
-    if [[ "$(lc "$provider")" == "deepseek" ]]; then
-        local dskey
-        dskey=$(config_get "deepseekApiKey" "")
-        if [[ -z "$dskey" ]]; then
-            echo -e "${CLR_RED}DeepSeek API key not set. Please set it in the menu first.${CLR_RESET}"
+    if [[ "$provider" == "deepseek" ]]; then
+        local dkey
+        dkey=$(config_get "deepseekApiKey" "")
+        if [[ -z "$dkey" ]]; then
+            echo -e "${CLR_RED}ERROR: DeepSeek API key not set.${CLR_RESET}"
+            echo -e "${CLR_YELLOW}Go to Model menu to set your key.${CLR_RESET}"
             read -rp "Press Enter to return to menu" || true
             return
         fi
-        export OPENAI_API_KEY="$dskey"
+
+        local dmodel
+        dmodel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
+        echo -e "${CLR_CYAN}Configuring DeepSeek API environment...${CLR_RESET}"
+        export OPENAI_API_KEY="$dkey"
         export OPENAI_BASE_URL="https://api.deepseek.com"
+        echo -e "${CLR_CYAN}Using model: $dmodel${CLR_RESET}"
+
+        local -a cmdParts=("codex-app")
+        if [[ ${#passArgs[@]} -gt 0 ]]; then
+            cmdParts+=("${passArgs[@]}")
+        fi
+
+        local customArgs
+        customArgs=$(config_get "customArgs" "")
+        if [[ -n "$customArgs" ]]; then
+            read -ra ca <<< "$customArgs"
+            cmdParts+=("${ca[@]}")
+        fi
+
+        local cmdString
+        cmdString=$(printf '%s ' "${cmdParts[@]}")
+        echo -e "\n${CLR_GREEN}>>> $cmdString (DeepSeek API)${CLR_RESET}"
+        echo -e "${CLR_GRAY}$(printf '%.0s-' {1..50})${CLR_RESET}"
+
+        clear
+        if "${cmdParts[@]}"; then
+            :
+        else
+            echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
+        fi
     else
+        local model
+        model=$(config_get "ollamaModel" "$DEFAULT_OLLAMA_MODEL")
+
         if ! start_ollama_server; then
             read -rp "Press Enter to return to menu" || true
             return
         fi
-    fi
 
-    clear
-    local -a cmdParts=()
-    if [[ "$(lc "$provider")" == "deepseek" ]]; then
-        cmdParts=("codex")
-    else
-        cmdParts=("ollama" "launch" "codex")
-    fi
-    local hasModel=0 hasYolo=0 foundSep=0
-    local -a extraAfterSec=()
-    local skipNext=0
+        local -a cmdParts=("ollama" "launch" "codex-app")
+        local hasModel=0 foundSep=0 skipNext=0
+        local -a extraAfterSep=()
 
-    for a in "${passArgs[@]}"; do
-        if [[ $skipNext -eq 1 ]]; then skipNext=0; continue; fi
-        if [[ "$a" == "--" ]]; then foundSep=1; continue; fi
-        if [[ $foundSep -eq 1 ]]; then extraAfterSec+=("$a"); continue; fi
-        if [[ "$a" == "--model" ]]; then
-            hasModel=1
-            cmdParts+=("--model")
-            skipNext=1
-        elif [[ "$a" == --model=* ]]; then
-            hasModel=1
-            cmdParts+=("$a")
-        elif [[ "$a" == "--yolo" ]]; then
-            hasYolo=1
-        else
-            extraAfterSec+=("$a")
+        for a in "${passArgs[@]}"; do
+            if [[ $skipNext -eq 1 ]]; then skipNext=0; continue; fi
+            if [[ "$a" == "--" ]]; then foundSep=1; continue; fi
+            if [[ $foundSep -eq 1 ]]; then extraAfterSep+=("$a"); continue; fi
+            if [[ "$a" == "--model" ]]; then
+                hasModel=1
+                cmdParts+=("--model")
+                skipNext=1
+            elif [[ "$a" == --model=* ]]; then
+                hasModel=1
+                cmdParts+=("$a")
+            else
+                extraAfterSep+=("$a")
+            fi
+        done
+
+        if [[ $hasModel -eq 0 && -n "$model" ]]; then
+            cmdParts+=("--model" "$model")
         fi
-    done
+        cmdParts+=("--")
 
-    if [[ $hasModel -eq 0 && -n "$model" ]]; then
-        cmdParts+=("--model" "$model")
+        local customArgs
+        customArgs=$(config_get "customArgs" "")
+        if [[ -n "$customArgs" ]]; then
+            read -ra ca <<< "$customArgs"
+            cmdParts+=("${ca[@]}")
+        fi
+
+        if [[ ${#extraAfterSep[@]} -gt 0 ]]; then
+            cmdParts+=("${extraAfterSep[@]}")
+        fi
+
+        local cmdString
+        cmdString=$(printf '%s ' "${cmdParts[@]}")
+        echo -e "\n${CLR_GREEN}>>> $cmdString${CLR_RESET}"
+        echo -e "${CLR_GRAY}$(printf '%.0s-' {1..50})${CLR_RESET}"
+
+        clear
+        if "${cmdParts[@]}"; then
+            :
+        else
+            echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
+        fi
     fi
-    cmdParts+=("--")
-
-    local fullauto
-    fullauto=$(config_get "fullAuto" "$DEFAULT_FULLAUTO")
-    if [[ $hasYolo -eq 0 && "$fullauto" == "True" ]]; then
-        cmdParts+=("--yolo")
-    fi
-
-    local customArgs
-    customArgs=$(config_get "customArgs" "")
-    if [[ -n "$customArgs" ]]; then
-        read -ra ca <<< "$customArgs"
-        cmdParts+=("${ca[@]}")
-    fi
-
-    if [[ ${#extraAfterSec[@]} -gt 0 ]]; then
-        cmdParts+=("${extraAfterSec[@]}")
-    fi
-
-    local cmdString
-    cmdString=$(printf '%s ' "${cmdParts[@]}")
-    echo -e "\n${CLR_GREEN}>>> $cmdString${CLR_RESET}"
-    echo -e "${CLR_GRAY}$(printf '%.0s-' {1..50})${CLR_RESET}"
-
-    clear
-    if "${cmdParts[@]}"; then
-        : # success
-    else
-        echo -e "${CLR_YELLOW}Codex exited with non-zero code.${CLR_RESET}"
-    fi
-    read -rp "Codex session ended. Press Enter to return to menu" || true
+    read -rp "Codex App session ended. Press Enter to return to menu" || true
 }
 
 # ============================================================
 #  Status & Menu
 # ============================================================
 function show_status() {
-    local cExists="NO" oExists="NO" nExists="NO" authOk="NO"
+    local cExists="NO" oExists="NO" nExists="NO" appExists="NO"
     command -v codex &>/dev/null && cExists="YES"
+    command -v codex-app &>/dev/null && appExists="YES"
     command -v ollama &>/dev/null && oExists="YES"
     command -v npm &>/dev/null && nExists="YES"
-    test_ollama_auth && authOk="YES"
 
-    local model source
-    model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    source=$(config_get "source" "$DEFAULT_SOURCE")
-    local fullauto
-    fullauto=$(config_get "fullAuto" "$DEFAULT_FULLAUTO")
+    local provider model
+    provider=$(config_get "provider" "$DEFAULT_PROVIDER")
 
     local cUpdate="" oUpdate=""
     if [[ "$cExists" == "YES" ]]; then
@@ -837,7 +879,7 @@ function show_status() {
         fi
     fi
 
-    echo -e "\n${CLR_CYAN}========== Codex CLI + Ollama Launcher ==========${CLR_RESET}"
+    echo -e "\n${CLR_CYAN}========== Codex App Launcher ==========${CLR_RESET}"
     if [[ "$nExists" == "YES" ]]; then
         local nver
         nver=$(npm --version 2>/dev/null || true)
@@ -856,6 +898,11 @@ function show_status() {
     else
         echo -e "  Codex CLI     : ${CLR_RED}NOT INSTALLED${CLR_RESET}"
     fi
+    if [[ "$appExists" == "YES" ]]; then
+        echo -e "  Codex App     : ${CLR_GREEN}AVAILABLE${CLR_RESET}"
+    else
+        echo -e "  Codex App     : ${CLR_YELLOW}NOT FOUND (installed via Codex CLI)${CLR_RESET}"
+    fi
     if [[ "$oExists" == "YES" ]]; then
         local oInst
         oInst=$(get_ollama_installed_version)
@@ -867,26 +914,29 @@ function show_status() {
     else
         echo -e "  Ollama        : ${CLR_RED}NOT INSTALLED${CLR_RESET}"
     fi
-    if [[ "$authOk" == "YES" ]]; then
-        echo -e "  Ollama Auth   : ${CLR_GREEN}OK${CLR_RESET}"
+    echo -e "  Provider      : ${CLR_CYAN}$(echo "$provider" | tr '[:lower:]' '[:upper:]')${CLR_RESET}"
+    if [[ "$provider" == "ollama" ]]; then
+        local omodel src
+        omodel=$(config_get "ollamaModel" "$DEFAULT_OLLAMA_MODEL")
+        src=$(config_get "source" "$DEFAULT_SOURCE")
+        echo -e "  Model         : ${CLR_CYAN}$omodel [source: $src]${CLR_RESET}"
     else
-        echo -e "  Ollama Auth   : ${CLR_RED}NOT SIGNED IN${CLR_RESET}"
-    fi
-    local provider
-    provider=$(config_get "provider" "$DEFAULT_PROVIDER")
-    echo -e "  AI Provider   : ${CLR_CYAN}$provider${CLR_RESET}"
-    if [[ "$(lc "$provider")" == "deepseek" ]]; then
-        local dskey
-        dskey=$(config_get "deepseekApiKey" "")
-        if [[ -n "$dskey" ]]; then
-            echo -e "  DeepSeek Key  : ${CLR_GREEN}SET${CLR_RESET}"
+        local dmodel dkey
+        dmodel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
+        dkey=$(config_get "deepseekApiKey" "")
+        local dlabel="$dmodel"
+        case "$dmodel" in
+            deepseek-chat) dlabel="DeepSeek V4 (Recommended)" ;;
+            deepseek-reasoner) dlabel="DeepSeek R1 (Flash/Reasoning)" ;;
+        esac
+        echo -e "  Model         : ${CLR_CYAN}$dlabel${CLR_RESET}"
+        if [[ -n "$dkey" ]]; then
+            echo -e "  API Key       : ${CLR_GREEN}SET${CLR_RESET}"
         else
-            echo -e "  DeepSeek Key  : ${CLR_RED}NOT SET${CLR_RESET}"
+            echo -e "  API Key       : ${CLR_RED}NOT SET${CLR_RESET}"
         fi
     fi
-    echo -e "  Config model  : ${CLR_CYAN}$model [source: $source]${CLR_RESET}"
-    echo -e "  Full-auto     : ${CLR_CYAN}$( [[ "$fullauto" == "True" ]] && echo 'ON (--yolo)' || echo 'OFF' )${CLR_RESET}"
-    echo -e "${CLR_CYAN}=================================================${CLR_RESET}"
+    echo -e "${CLR_CYAN}=========================================${CLR_RESET}"
 }
 
 function show_main_menu() {
@@ -913,38 +963,27 @@ function show_main_menu() {
         fi
     fi
 
-    local model
-    model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    local provider
+    local provider source
     provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+    source=$(config_get "source" "$DEFAULT_SOURCE")
 
     echo -e "\n[1] Install / Update Codex CLI ${CLR_WHITE}"
     [[ -n "$cUpdate" ]] && echo -e "${CLR_YELLOW}$cUpdate${CLR_RESET}"
-    if [[ "$(lc "$provider")" != "deepseek" ]]; then
+    if [[ "$oExists" == "YES" ]]; then
         echo -e "[2] Install / Update Ollama ${CLR_WHITE}"
         [[ -n "$oUpdate" ]] && echo -e "${CLR_YELLOW}$oUpdate${CLR_RESET}"
     else
-        echo -e "[2] Install / Update Ollama [not applicable] ${CLR_GRAY}"
+        echo -e "[2] Install / Update Ollama ${CLR_WHITE}"
     fi
-    echo -e "[3] Pick / Change Model  [current: $model] ${CLR_WHITE}"
-    local source
-    source=$(config_get "source" "$DEFAULT_SOURCE")
-    if [[ "$source" == "cloud" && "$oExists" == "YES" ]] && [[ "$(lc "$provider")" != "deepseek" ]]; then
-        echo -e "[4] Pull Selected Model Locally (ollama pull) ${CLR_WHITE}"
+    echo -e "[3] Pick / Change Provider & Model ${CLR_WHITE}"
+    if [[ "$provider" == "ollama" && "$source" == "cloud" && "$oExists" == "YES" ]]; then
+        echo -e "[4] Pull Ollama Model Locally ${CLR_WHITE}"
     else
-        echo -e "[4] Pull Selected Model Locally [not applicable] ${CLR_GRAY}"
+        echo -e "[4] Pull Ollama Model Locally [not applicable] ${CLR_GRAY}"
     fi
-    echo -e "[5] Toggle Full-Auto Mode (--yolo) ${CLR_WHITE}"
-    echo -e "[6] Set Custom Launch Arguments ${CLR_WHITE}"
-    if [[ "$(lc "$provider")" != "deepseek" ]]; then
-        echo -e "[7] Check / Fix Ollama Sign-in ${CLR_WHITE}"
-    else
-        echo -e "[7] Set DeepSeek API Key ${CLR_WHITE}"
-    fi
-    echo -e "[8] Launch Codex CLI ${CLR_GREEN}"
+    echo -e "[5] Set Custom Launch Arguments ${CLR_WHITE}"
+    echo -e "[6] Launch Codex App ${CLR_GREEN}"
     echo -e "[C] Clear Version Cache ${CLR_WHITE}"
-    echo -e "[A] Toggle Auto-Update on Direct Launch ${CLR_WHITE}"
-    echo -e "[P] Switch AI Provider ${CLR_WHITE}"
     echo -e "[Q] Quit ${CLR_MAGENTA}"
     echo ""
 }
@@ -961,54 +1000,48 @@ if [[ $# -gt 0 ]]; then
     if [[ "${launchArgs[0]}" == "launch" ]]; then
         launchArgs=("${launchArgs[@]:1}")
     fi
-    if ! command -v codex &>/dev/null; then
-        echo -e "${CLR_YELLOW}Codex CLI not found. Installing...${CLR_RESET}"
-        install_codex_cli || exit 1
-    fi
-    launchProvider=""
-    launchProvider=$(config_get "provider" "$DEFAULT_PROVIDER")
-    if [[ "$(lc "$launchProvider")" != "deepseek" ]]; then
+    provider=""
+    provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+    if [[ "$provider" == "deepseek" ]]; then
+        dkey=""
+        dkey=$(config_get "deepseekApiKey" "")
+        if [[ -z "$dkey" ]]; then
+            echo -e "${CLR_RED}ERROR: DeepSeek API key not set. Run launcher menu to configure.${CLR_RESET}"
+            exit 1
+        fi
+        export OPENAI_API_KEY="$dkey"
+        export OPENAI_BASE_URL="https://api.deepseek.com"
+        clear
+        cmdParts=("codex-app")
+        if [[ ${#launchArgs[@]} -gt 0 ]]; then
+            cmdParts+=("${launchArgs[@]}")
+        fi
+        echo -e "${CLR_GREEN}>>> $(printf '%s ' "${cmdParts[@]}") (DeepSeek API)${CLR_RESET}"
+        "${cmdParts[@]}"
+    else
+        if ! command -v codex &>/dev/null; then
+            echo -e "${CLR_YELLOW}Codex CLI not found. Installing...${CLR_RESET}"
+            install_codex_cli || exit 1
+        fi
         if ! command -v ollama &>/dev/null; then
             echo -e "${CLR_YELLOW}Ollama not found. Installing...${CLR_RESET}"
             install_ollama || exit 1
         fi
-    fi
-    skipUpdate=""
-    skipUpdate=$(config_get "skipUpdateCheck" "$DEFAULT_SKIPUPDATE")
-    if [[ "$skipUpdate" != "True" ]]; then
-        cInst="" cLat="" oInst="" oLat=""
-        cInst=$(get_codex_installed_version)
-        cLat=$(get_codex_latest_version)
-        if [[ -n "$cInst" && -n "$cLat" ]] && version_greater "$cInst" "$cLat"; then
-            autoUpd=""
-            autoUpd=$(config_get "autoUpdate" "$DEFAULT_AUTOUPDATE")
-            if [[ "$autoUpd" == "True" ]]; then
-                echo -e "${CLR_CYAN}Auto-updating Codex CLI...${CLR_RESET}"
-                install_codex_cli &>/dev/null
-            else
-                echo -e "${CLR_YELLOW}Codex update available: v$cInst -> v$cLat. Run launcher menu to update.${CLR_RESET}"
-            fi
-        fi
-        if [[ "$(lc "$launchProvider")" != "deepseek" ]]; then
-            oInst=$(get_ollama_installed_version)
-            oLat=$(get_ollama_latest_version)
-            if [[ -n "$oInst" && -n "$oLat" ]] && version_greater "$oInst" "$oLat"; then
-                echo -e "${CLR_YELLOW}Ollama update available: v$oInst -> v$oLat. Run launcher menu to update.${CLR_RESET}"
-            fi
-        fi
-    fi
-    if [[ "$(lc "$launchProvider")" != "deepseek" ]]; then
         start_ollama_server || exit 1
+        clear
+        launch_codex_app "${launchArgs[@]}"
     fi
-    clear
-    launch_codex "${launchArgs[@]}"
     exit $?
 fi
 
 # --- Interactive menu mode ---
 while true; do
     show_main_menu
-    ask "Enter choice: " choice
+    ask "Enter your choice: " choice
+    provider=""
+    provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+    source=""
+    source=$(config_get "source" "$DEFAULT_SOURCE")
     case "$(lc "$choice")" in
         1)
             if command -v codex &>/dev/null; then
@@ -1030,11 +1063,7 @@ while true; do
             read -rp "Press Enter to continue" || true
             ;;
         2)
-            provider=$(config_get "provider" "$DEFAULT_PROVIDER")
-            if [[ "$(lc "$provider")" == "deepseek" ]]; then
-                echo -e "${CLR_YELLOW}Ollama is not used when DeepSeek provider is selected.${CLR_RESET}"
-                read -rp "Press Enter to continue" || true
-            elif command -v ollama &>/dev/null; then
+            if command -v ollama &>/dev/null; then
                 inst="" lat=""
                 inst=$(get_ollama_installed_version)
                 lat=$(get_ollama_latest_version)
@@ -1053,58 +1082,45 @@ while true; do
             read -rp "Press Enter to continue" || true
             ;;
         3)
-            show_model_picker
+            show_model_menu
             ;;
         4)
-            src=""
-            src=$(config_get "source" "$DEFAULT_SOURCE")
-            if [[ "$src" == "cloud" && $(command -v ollama &>/dev/null && echo YES || echo NO) == "YES" ]]; then
+            if [[ "$provider" == "ollama" && "$source" == "cloud" ]] && command -v ollama &>/dev/null; then
                 pull_selected_model
             else
-                echo -e "${CLR_YELLOW}Pull is only available when a cloud model is selected and Ollama is installed.${CLR_RESET}"
+                echo -e "${CLR_YELLOW}Pull is only available when using Ollama provider with a cloud model.${CLR_RESET}"
                 read -rp "Press Enter to continue" || true
             fi
             ;;
         5)
-            fa=""
-            fa=$(config_get "fullAuto" "$DEFAULT_FULLAUTO")
-            if [[ "$fa" == "True" ]]; then
-                config_set "fullAuto" "False"
-                echo -e "${CLR_GREEN}Full-auto mode: OFF${CLR_RESET}"
-            else
-                config_set "fullAuto" "True"
-                echo -e "${CLR_GREEN}Full-auto mode: ON (--yolo)${CLR_RESET}"
-            fi
-            sleep 1
-            ;;
-        6)
             ca=""
             ca=$(config_get "customArgs" "")
             echo -e "${CLR_CYAN}Current custom args: $( [[ -n "$ca" ]] && echo "$ca" || echo '(none)' )${CLR_RESET}"
-            ask "Enter extra args (e.g. --approval-mode full-auto), or blank to clear: " new
+            ask "Enter extra args, or blank to clear: " new
             config_set "customArgs" "${new:-}"
             echo -e "${CLR_GREEN}Custom args updated.${CLR_RESET}"
             sleep 1
             ;;
-        7)
-            provider=$(config_get "provider" "$DEFAULT_PROVIDER")
-            if [[ "$(lc "$provider")" == "deepseek" ]]; then
-                set_deepseek_key
-            else
-                check_ollama_signin
-            fi
-            ;;
-        8)
-            provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+        6)
             if ! command -v codex &>/dev/null; then
                 echo -e "${CLR_RED}Codex CLI not installed. Install first (option 1).${CLR_RESET}"
                 read -rp "Press Enter to continue" || true
-            elif [[ "$(lc "$provider")" != "deepseek" ]] && ! command -v ollama &>/dev/null; then
+            elif [[ "$provider" == "ollama" && "$oExists" == "NO" ]]; then
                 echo -e "${CLR_RED}Ollama not installed. Install first (option 2).${CLR_RESET}"
                 read -rp "Press Enter to continue" || true
+            elif [[ "$provider" == "deepseek" ]]; then
+                dkey=""
+                dkey=$(config_get "deepseekApiKey" "")
+                if [[ -z "$dkey" ]]; then
+                    echo -e "${CLR_RED}DeepSeek API key not set. Go to option 3 to configure.${CLR_RESET}"
+                    read -rp "Press Enter to continue" || true
+                else
+                    clear
+                    launch_codex_app
+                fi
             else
                 clear
-                launch_codex
+                launch_codex_app
             fi
             ;;
         c)
@@ -1112,21 +1128,6 @@ while true; do
             cache_set "ollamaLastChecked" ""
             echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"
             sleep 1
-            ;;
-        a)
-            au=""
-            au=$(config_get "autoUpdate" "$DEFAULT_AUTOUPDATE")
-            if [[ "$au" == "True" ]]; then
-                config_set "autoUpdate" "False"
-                echo -e "${CLR_GREEN}Auto-update on direct launch: OFF${CLR_RESET}"
-            else
-                config_set "autoUpdate" "True"
-                echo -e "${CLR_GREEN}Auto-update on direct launch: ON${CLR_RESET}"
-            fi
-            sleep 1
-            ;;
-        p)
-            show_provider_menu
             ;;
         q)
             echo -e "${CLR_GREEN}Goodbye!${CLR_RESET}"

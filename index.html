@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CLI Launchers &mdash; Run Codex &amp; Claude Code with Any Ollama Model</title>
-    <meta name="description" content="Single-file launchers for Codex CLI and Claude Code on Windows and macOS. Auto-installs dependencies, keeps tools updated, and lets you pick any Ollama model.">
-    <meta property="og:title" content="CLI Launchers — Run Codex & Claude Code with Any Ollama Model">
-    <meta property="og:description" content="Run Codex CLI and Claude Code with any Ollama model on Windows and macOS. One file that auto-installs, updates, and launches everything.">
+    <meta name="description" content="Three single-file launchers for Codex CLI, Codex App, and Claude CLI on Windows and macOS. Pick Ollama or DeepSeek API as your provider and choose from V4 or Flash models.">
+    <meta property="og:title" content="CLI Launchers — Codex CLI, Codex App, Claude CLI with Ollama or DeepSeek">
+    <meta property="og:description" content="Run Codex CLI, Codex App, and Claude CLI with any Ollama model or DeepSeek API. One file per launcher — auto-installs, updates, and launches everything.">
     <meta property="og:url" content="https://jlaiii.github.io/cli-launchers/">
     <meta property="og:type" content="website">
     <meta property="og:image" content="https://opengraph.githubassets.com/1/jlaiii/cli-launchers">
@@ -105,7 +105,7 @@
 
         .cards {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 24px;
             margin: 40px 0;
             animation: fadeUp 0.9s ease-out 0.15s both;
@@ -433,16 +433,16 @@
     <div class="container">
         <header>
             <h1>CLI Launchers</h1>
-            <p class="lead">Run top-tier AI CLI tools with any Ollama model you want.</p>
-            <p class="sub">One file for Windows or macOS. It installs what you are missing, keeps everything updated, and hands you a menu to pick models and launch.</p>
-            <div class="tagline">Zero setup &middot; Auto-install &middot; Model picker &middot; Ollama ready</div>
+            <p class="lead">Three launchers: Codex CLI, Codex App, Claude CLI. Pick Ollama or DeepSeek API as your provider.</p>
+            <p class="sub">One file for Windows or macOS. It installs what you are missing, keeps everything updated, and hands you a menu to pick your provider, model, and launch.</p>
+            <div class="tagline">Zero setup &middot; Auto-install &middot; Ollama or DeepSeek &middot; V4 & Flash models &middot; Model picker</div>
         </header>
 
         <div class="cards">
             <div class="card" id="download-codex">
                 <div class="badge">OpenAI Codex CLI</div>
-                <h2>Codex + Ollama Launcher</h2>
-                <p>Launch OpenAI Codex CLI through Ollama. Pick any cloud or local model and run it with full-auto or manual approval.</p>
+                <h2>Codex CLI</h2>
+                <p>Launch OpenAI Codex CLI through Ollama or DeepSeek API. Pick any cloud or local model and run it with full-auto or manual approval.</p>
                 <div class="download-group">
                     <a class="download-btn" href="Codex-Launcher.bat" download="Codex-Launcher.bat">
                         <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
@@ -466,10 +466,37 @@
                     </div>
                 </div>
             </div>
+            <div class="card" id="download-codex-app">
+                <div class="badge">OpenAI Codex App</div>
+                <h2>Codex App</h2>
+                <p>Launch Codex App through Ollama or DeepSeek API. Pick DeepSeek V4 (recommended) or Flash model with your own API key.</p>
+                <div class="download-group">
+                    <a class="download-btn" href="Codex-App-Launcher.bat" download="Codex-App-Launcher.bat">
+                        <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                        Windows .bat
+                    </a>
+                    <a class="download-btn secondary" href="Codex-App-Launcher.command" download="Codex-App-Launcher.command">
+                        <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
+                        macOS .command
+                    </a>
+                </div>
+                <div class="oneliner">
+                    <div class="oneliner-label">Windows (PowerShell)</div>
+                    <div class="codebox" onclick="copy(this)">
+                        <code>irm https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-App-Launcher.ps1 | iex</code>
+                        <svg class="copy-icon" viewBox="0 0 16 16"><path d="M0 1.75A1.75 1.75 0 0 1 1.75 0h8.5C11.216 0 12 .784 12 1.75v8.5A1.75 1.75 0 0 1 10.25 12h-8.5A1.75 1.75 0 0 1 0 10.25v-8.5Zm1.75-.25a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5ZM4 4h5v1H4V4Zm0 2h5v1H4V6Zm0 2h3v1H4V8Z"/></svg>
+                    </div>
+                    <div class="oneliner-label">macOS (Terminal)</div>
+                    <div class="codebox" onclick="copy(this)">
+                        <code>curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Codex-App-Launcher.command | bash</code>
+                        <svg class="copy-icon" viewBox="0 0 16 16"><path d="M0 1.75A1.75 1.75 0 0 1 1.75 0h8.5C11.216 0 12 .784 12 1.75v8.5A1.75 1.75 0 0 1 10.25 12h-8.5A1.75 1.75 0 0 1 0 10.25v-8.5Zm1.75-.25a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5ZM4 4h5v1H4V4Zm0 2h5v1H4V6Zm0 2h3v1H4V8Z"/></svg>
+                    </div>
+                </div>
+            </div>
             <div class="card" id="download-claude">
                 <div class="badge">Anthropic Claude Code</div>
-                <h2>Claude + Ollama Launcher</h2>
-                <p>Launch Claude Code through Ollama. Auto-installs Claude Code and Ollama, picks your model, and gets you coding in seconds.</p>
+                <h2>Claude CLI</h2>
+                <p>Launch Claude Code through Ollama or DeepSeek API. Auto-installs Claude Code and Ollama, picks your model, and gets you coding in seconds.</p>
                 <div class="download-group">
                     <a class="download-btn" href="Claude-Ollama-Launcher.bat" download="Claude-Ollama-Launcher.bat">
                         <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
@@ -497,9 +524,9 @@
 
         <div class="whatis">
             <h2>What is this?</h2>
-            <p>CLI Launchers are single-file scripts that set up and run the best AI coding assistants available &mdash; <strong>OpenAI Codex CLI</strong> and <strong>Anthropic Claude Code</strong> &mdash; through <strong>Ollama</strong>.</p>
+            <p>CLI Launchers are single-file scripts for <strong>Codex CLI</strong>, <strong>Codex App</strong>, and <strong>Claude CLI</strong>. Each launcher sets up its AI coding assistant and runs it through <strong>Ollama</strong> or the <strong>DeepSeek API</strong>.</p>
             <p>Instead of manually installing Node.js, npm, the CLI tools, and Ollama, then configuring models and launch flags, you download one file &mdash; a <code>.bat</code> for Windows or a <code>.command</code> for macOS &mdash; run it, and the launcher handles everything.</p>
-            <p><strong>Who is it for?</strong> Developers on Windows or macOS who want to use cutting-edge AI CLI tools without spending time on setup, dependency hell, or keeping tools up to date. If you want to run Codex or Claude with any Ollama model &mdash; cloud or local &mdash; this gets you there in one click.</p>
+            <p><strong>Who is it for?</strong> Developers on Windows or macOS who want to use cutting-edge AI CLI tools without spending time on setup, dependency hell, or keeping tools up to date. If you want to run Codex CLI, Codex App, or Claude CLI with any Ollama model or DeepSeek model &mdash; this gets you there in one click.</p>
         </div>
 
         <div class="features">
@@ -526,6 +553,10 @@
                     <p>Verifies you are signed into Ollama. Offers to run sign-in if not.</p>
                 </div>
                 <div class="feature">
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span> DeepSeek API</h3>
+                    <p>Plug in your DeepSeek API key to use V4 or Flash models for Codex and Claude Code.</p>
+                </div>
+                <div class="feature">
                     <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span> Cross-Platform</h3>
                     <p>Same smooth experience on Windows and macOS. One codebase, two native wrappers.</p>
                 </div>
@@ -544,10 +575,10 @@
                     <strong>macOS:</strong> Right-click the <code>.command</code> file and choose <strong>Open</strong> (required the first time because it was downloaded from the web), or run it from Terminal.</li>
                 <li>The launcher shows a status screen and menu. Pick an option by typing the number and pressing <code>Enter</code>.</li>
                 <li>To <strong>launch directly</strong> without the menu, pass arguments:<br>
-                    <code>Codex-Launcher.bat launch --model kimi-k2.6:cloud -- --yolo</code><br>
-                    <code>Claude-Ollama-Launcher.bat launch --model ollama/llama3</code><br>
-                    <code>./Codex-Launcher.command launch --model kimi-k2.6:cloud -- --yolo</code><br>
-                    <code>./Claude-Ollama-Launcher.command launch --model ollama/llama3</code>
+                    <strong>Codex CLI:</strong> <code>Codex-Launcher.bat launch --model kimi-k2.6:cloud -- --yolo</code><br>
+                    <strong>Codex App:</strong> <code>Codex-App-Launcher.bat launch</code><br>
+                    <strong>Claude CLI:</strong> <code>Claude-Ollama-Launcher.bat launch --model ollama/llama3</code><br>
+                    macOS: add <code>./</code> prefix and use <code>.command</code> instead of <code>.bat</code>
                 </li>
             </ol>
         </div>
