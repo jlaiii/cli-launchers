@@ -701,8 +701,10 @@ function Set-DeepSeekApiKey {
 # ============================================
 function Launch-Codex([string[]]$passArgs) {
     $cfg = Get-Config
+    $isDeepSeek = ($cfg.provider -eq "deepseek")
+    $isOllama = ($cfg.provider -ne "deepseek")
 
-    if ($cfg.provider -eq "deepseek") {
+    if ($isDeepSeek) {
         if ([string]::IsNullOrWhiteSpace($cfg.deepseekApiKey)) {
             Write-Host "DeepSeek API key is not set. Please set it in the model picker first." -ForegroundColor Red
             Read-Host "Press Enter to return to menu"
@@ -742,6 +744,7 @@ function Launch-Codex([string[]]$passArgs) {
                 $cmdParts += $a
             } elseif ($a -eq "--yolo") {
                 $hasYolo = $true
+                if ($isDeepSeek) { $cmdParts += "--yolo" }
             } else {
                 $extraAfterSep += $a
             }
@@ -750,7 +753,7 @@ function Launch-Codex([string[]]$passArgs) {
             $cmdParts += "--model"
             $cmdParts += $model
         }
-        $cmdParts += "--"
+        if ($isOllama) { $cmdParts += "--" }
         if (-not $hasYolo -and $cfg.fullAuto) {
             $cmdParts += "--yolo"
         }
@@ -765,7 +768,7 @@ function Launch-Codex([string[]]$passArgs) {
             $cmdParts += "--model"
             $cmdParts += $model
         }
-        $cmdParts += "--"
+        if ($isOllama) { $cmdParts += "--" }
         if ($cfg.fullAuto) {
             $cmdParts += "--yolo"
         }
@@ -933,12 +936,15 @@ if ($args.Count -gt 0) {
         $ok = Install-CodexCLI
         if (-not $ok) { exit 1 }
     }
-    if (-not (Test-CommandExists "ollama")) {
-        Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
-        Install-Ollama
-    }
 
     $cfg = Get-Config
+
+    if ($cfg.provider -eq "ollama") {
+        if (-not (Test-CommandExists "ollama")) {
+            Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
+            Install-Ollama
+        }
+    }
 
     if (-not $cfg.skipUpdateCheck) {
         $cInst = Get-CodexInstalledVersion

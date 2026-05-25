@@ -959,10 +959,12 @@ if ($args.Count -gt 0) {
         Clear-Host
         $cmdParts = @("codex", "--model", $cfg.deepseekModel)
         if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
+        if ($cfg.customArgs) { $cmdParts += ($cfg.customArgs -split ' ') }
         $cmdString = $cmdParts -join ' '
         Write-Host ">>> $cmdString (DeepSeek API)" -ForegroundColor Green
         try {
             & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            exit $LASTEXITCODE
         } catch {
             Write-Host "ERROR: $_" -ForegroundColor Red
             exit 1

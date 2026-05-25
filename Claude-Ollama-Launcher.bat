@@ -3,7 +3,7 @@ set "BAT_DIR=%~dp0"
 set "PSFILE=%TEMP%\ClaudeOllamaLauncher.ps1"
 powershell -NoProfile -Command "Get-Content '%~f0' -Encoding UTF8 | Select-Object -Skip 9 | Out-File '%PSFILE%' -Encoding UTF8"
 set "BatDir=%~dp0"
-powershell -ExecutionPolicy Bypass -Command "& '%PSFILE%'; exit $LASTEXITCODE"
+powershell -ExecutionPolicy Bypass -Command "& '%PSFILE%' exit $LASTEXITCODE"
 set "EC=%errorlevel%"
 del /Q "%PSFILE%" 2>nul
 exit /b %EC%
@@ -367,6 +367,18 @@ function Show-ProviderMenu {
             "2" {
                 $cfg = Get-Config
                 $cfg.provider = "deepseek"
+                if (-not $cfg.deepseekApiKey) {
+                    Write-Host ""
+                    Write-Host "DeepSeek API key required." -ForegroundColor Yellow
+                    Write-Host "Get your key at: https://platform.deepseek.com/api_keys" -ForegroundColor Cyan
+                    $key = Read-Host "Enter your DeepSeek API key (starts with 'sk-')"
+                    if ($key) {
+                        $cfg.deepseekApiKey = $key.Trim()
+                    } else {
+                        Write-Host "No key entered. You can set it later from the model picker." -ForegroundColor Yellow
+                        Start-Sleep -Seconds 2
+                    }
+                }
                 Save-Config $cfg
                 Write-Host "Provider set to: DeepSeek" -ForegroundColor Green
                 Read-Host "Press Enter to continue"
@@ -389,7 +401,7 @@ function Show-DeepSeekModelPicker {
     Write-Host "Current DeepSeek model: $($cfg.deepseekModel)" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  [1] DeepSeek-V4 (recommended) -> deepseek-chat" -ForegroundColor Yellow
-    Write-Host "  [2] DeepSeek-Flash             -> deepseek-chat" -ForegroundColor Yellow
+    Write-Host "  [2] DeepSeek-Flash             -> deepseek-reasoner" -ForegroundColor Yellow
     Write-Host "  [M] Manual entry (custom model ID)" -ForegroundColor Yellow
     Write-Host "  [B] Back to menu" -ForegroundColor Magenta
     Write-Host ""
@@ -405,9 +417,9 @@ function Show-DeepSeekModelPicker {
         }
         "2" {
             $cfg = Get-Config
-            $cfg.deepseekModel = "deepseek-chat"
+            $cfg.deepseekModel = "deepseek-reasoner"
             Save-Config $cfg
-            Write-Host "DeepSeek model set to: deepseek-chat (Flash)" -ForegroundColor Green
+            Write-Host "DeepSeek model set to: deepseek-reasoner (Flash)" -ForegroundColor Green
             Read-Host "Press Enter to continue"
         }
         "m" {
@@ -921,6 +933,70 @@ function Show-MainMenu {
 # ========== MAIN EXECUTION ==========
 
 Ensure-ClaudeInPath
+
+# --- Direct launch mode (arguments provided) ---
+if ($args.Count -gt 0) {
+    $launchArgs = $args
+    if ($launchArgs[0] -eq "launch") {
+        if ($launchArgs.Count -gt 1) { $launchArgs = $launchArgs[1..($launchArgs.Count-1)] } else { $launchArgs = @() }
+    }
+
+    if (-not (Test-CommandExists "claude")) {
+        Write-Host "Claude Code not found. Installing..." -ForegroundColor Yellow
+        Install-ClaudeCode
+        if (-not (Test-CommandExists "claude")) {
+            Write-Host "Failed to install Claude Code." -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    $cfg = Get-Config
+
+    if ($cfg.provider -eq "ollama") {
+        if (-not (Test-CommandExists "ollama")) {
+            Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
+            Install-Ollama
+        }
+        if (-not (Start-OllamaServer)) { exit 1 }
+    } else {
+        if (-not $cfg.deepseekApiKey) {
+            Write-Host "DeepSeek API key is not set. Run launcher menu to configure." -ForegroundColor Red
+            exit 1
+        }
+        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
+    }
+
+    Clear-Host
+    $cmdParts = if ($cfg.provider -eq "deepseek") {
+        @("claude", "--model", $cfg.deepseekModel)
+    } else {
+        @("ollama", "launch", "claude", "--model", $cfg.selectedModel, "--")
+    }
+    if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
+    if ($cfg.customCommand -and $cfg.provider -ne "deepseek") {
+        $cmdParts = $cfg.customCommand.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+        $cmdParts += "--model"
+        $cmdParts += $cfg.selectedModel
+        $cmdParts += "--"
+        if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
+    }
+    if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
+
+    $cmdString = $cmdParts -join ' '
+    Write-Host ">>> $cmdString $(if ($cfg.provider -eq 'deepseek') { '(DeepSeek API)' })" -ForegroundColor Green
+    try {
+        if ($cfg.provider -eq "deepseek") {
+            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+        } else {
+            $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
+        }
+    } catch {
+        Write-Host "ERROR: $_" -ForegroundColor Red
+        exit 1
+    }
+    exit $LASTEXITCODE
+}
 
 while ($true) {
     Show-MainMenu
