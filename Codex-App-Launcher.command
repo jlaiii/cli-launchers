@@ -765,7 +765,7 @@ function launch_codex_app() {
         export OPENAI_BASE_URL="https://api.deepseek.com"
         echo -e "${CLR_CYAN}Using model: $dmodel${CLR_RESET}"
 
-        local -a cmdParts=("codex-app")
+        local -a cmdParts=("codex" "--model" "$dmodel")
         if [[ ${#passArgs[@]} -gt 0 ]]; then
             cmdParts+=("${passArgs[@]}")
         fi
@@ -1011,8 +1011,10 @@ if [[ $# -gt 0 ]]; then
         fi
         export OPENAI_API_KEY="$dkey"
         export OPENAI_BASE_URL="https://api.deepseek.com"
+        dmodel=""
+        dmodel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
         clear
-        cmdParts=("codex-app")
+        cmdParts=("codex" "--model" "$dmodel")
         if [[ ${#launchArgs[@]} -gt 0 ]]; then
             cmdParts+=("${launchArgs[@]}")
         fi

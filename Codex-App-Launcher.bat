@@ -755,7 +755,7 @@ function Launch-CodexApp([string[]]$passArgs) {
         $env:OPENAI_BASE_URL = "https://api.deepseek.com"
         Write-Host "Using model: $($cfg.deepseekModel)" -ForegroundColor Cyan
 
-        $cmdParts = @("codex-app")
+        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
         if ($passArgs -and $passArgs.Count -gt 0) {
             $cmdParts += $passArgs
         }
@@ -775,10 +775,6 @@ function Launch-CodexApp([string[]]$passArgs) {
             }
         } catch {
             Write-Host "ERROR launching Codex App: $_" -ForegroundColor Red
-            if (-not (Test-CommandExists "codex-app")) {
-                Write-Host "codex-app command not found. It may be bundled with Codex CLI." -ForegroundColor Yellow
-                Write-Host "Try: npm install -g @openai/codex" -ForegroundColor Yellow
-            }
         }
     } else {
         $model = $cfg.ollamaModel
@@ -970,7 +966,7 @@ if ($args.Count -gt 0) {
         $env:OPENAI_API_KEY = $cfg.deepseekApiKey
         $env:OPENAI_BASE_URL = "https://api.deepseek.com"
         Clear-Host
-        $cmdParts = @("codex-app")
+        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
         if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
         $cmdString = $cmdParts -join ' '
         Write-Host ">>> $cmdString (DeepSeek API)" -ForegroundColor Green
