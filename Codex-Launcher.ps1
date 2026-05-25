@@ -702,7 +702,7 @@ function Launch-Codex([string[]]$passArgs) {
             return
         }
         $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com"
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
         $model = $cfg.deepseekModel
         $cmdParts = @("codex")
     } else {
@@ -717,7 +717,7 @@ function Launch-Codex([string[]]$passArgs) {
         $foundSep = $false
         $skipNext = $false
         foreach ($a in $passArgs) {
-            if ($skipNext) { $skipNext = $false; continue }
+            if ($skipNext) { $cmdParts += $a; $skipNext = $false; continue }
             if ($a -eq "--") {
                 $foundSep = $true
                 continue
@@ -965,7 +965,7 @@ if ($args.Count -gt 0) {
             exit 1
         }
         $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com"
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
     }
 
     Clear-Host

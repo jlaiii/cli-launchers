@@ -752,7 +752,7 @@ function Launch-CodexApp([string[]]$passArgs) {
 
         Write-Host "Configuring DeepSeek API environment..." -ForegroundColor Cyan
         $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com"
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
         Write-Host "Using model: $($cfg.deepseekModel)" -ForegroundColor Cyan
 
         $cmdParts = @("codex", "--model", $cfg.deepseekModel)
@@ -964,9 +964,14 @@ if ($args.Count -gt 0) {
             exit 1
         }
         $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com"
+        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
         Clear-Host
-        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
+        $cmdParts = @("codex")
+        $hasModel = $false
+        foreach ($a in $launchArgs) {
+            if ($a -eq "--model" -or $a.StartsWith("--model=")) { $hasModel = $true }
+        }
+        if (-not $hasModel) { $cmdParts += @("--model", $cfg.deepseekModel) }
         if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
         if ($cfg.customArgs) { $cmdParts += ($cfg.customArgs -split ' ') }
         $cmdString = $cmdParts -join ' '

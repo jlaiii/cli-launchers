@@ -730,7 +730,7 @@ function launch_codex() {
             return
         fi
         export OPENAI_API_KEY="$dskey"
-        export OPENAI_BASE_URL="https://api.deepseek.com"
+        export OPENAI_BASE_URL="https://api.deepseek.com/v1"
     else
         if ! start_ollama_server; then
             read -rp "Press Enter to return to menu" || true

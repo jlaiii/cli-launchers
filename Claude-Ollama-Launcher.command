@@ -628,7 +628,7 @@ function launch_claude() {
             return
         fi
         export OPENAI_API_KEY="$dsKey"
-        export OPENAI_BASE_URL="https://api.deepseek.com"
+        export OPENAI_BASE_URL="https://api.deepseek.com/v1"
 
         clear
         local skip

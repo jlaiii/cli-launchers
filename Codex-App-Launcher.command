@@ -762,7 +762,7 @@ function launch_codex_app() {
         dmodel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
         echo -e "${CLR_CYAN}Configuring DeepSeek API environment...${CLR_RESET}"
         export OPENAI_API_KEY="$dkey"
-        export OPENAI_BASE_URL="https://api.deepseek.com"
+        export OPENAI_BASE_URL="https://api.deepseek.com/v1"
         echo -e "${CLR_CYAN}Using model: $dmodel${CLR_RESET}"
 
         local -a cmdParts=("codex" "--model" "$dmodel")
@@ -1010,7 +1010,7 @@ if [[ $# -gt 0 ]]; then
             exit 1
         fi
         export OPENAI_API_KEY="$dkey"
-        export OPENAI_BASE_URL="https://api.deepseek.com"
+        export OPENAI_BASE_URL="https://api.deepseek.com/v1"
         dmodel=""
         dmodel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
         clear

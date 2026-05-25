@@ -959,8 +959,14 @@ if ($args.Count -gt 0) {
     }
 
     Clear-Host
+    $hasModel = $false
+    foreach ($a in $launchArgs) {
+        if ($a -eq "--model" -or $a.StartsWith("--model=")) { $hasModel = $true }
+    }
     $cmdParts = if ($cfg.provider -eq "deepseek") {
-        @("claude", "--model", $cfg.deepseekModel)
+        $parts = @("claude")
+        if (-not $hasModel) { $parts += @("--model", $cfg.deepseekModel) }
+        $parts
     } else {
         @("ollama", "launch", "claude", "--model", $cfg.selectedModel, "--")
     }
