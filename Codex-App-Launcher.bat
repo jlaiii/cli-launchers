@@ -755,9 +755,14 @@ function Launch-CodexApp([string[]]$passArgs) {
         $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
         Write-Host "Using model: $($cfg.deepseekModel)" -ForegroundColor Cyan
 
-        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
+        $cmdParts = @("codex", "--model=$($cfg.deepseekModel)")
         if ($passArgs -and $passArgs.Count -gt 0) {
-            $cmdParts += $passArgs
+            $skipNext = $false
+            foreach ($a in $passArgs) {
+                if ($skipNext) { $cmdParts += "--model=$a"; $skipNext = $false; continue }
+                if ($a -eq "--model") { $skipNext = $true; continue }
+                $cmdParts += $a
+            }
         }
         if ($cfg.customArgs) {
             $cmdParts += ($cfg.customArgs -split ' ')
@@ -968,11 +973,14 @@ if ($args.Count -gt 0) {
         Clear-Host
         $cmdParts = @("codex")
         $hasModel = $false
+        $skipNext = $false
         foreach ($a in $launchArgs) {
-            if ($a -eq "--model" -or $a.StartsWith("--model=")) { $hasModel = $true }
+            if ($skipNext) { $cmdParts += "--model=$a"; $skipNext = $false; continue }
+            if ($a -eq "--model") { $hasModel = $true; $skipNext = $true; continue }
+            if ($a.StartsWith("--model=")) { $hasModel = $true; $cmdParts += $a; continue }
+            $cmdParts += $a
         }
-        if (-not $hasModel) { $cmdParts += @("--model", $cfg.deepseekModel) }
-        if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
+        if (-not $hasModel) { $cmdParts += "--model=$($cfg.deepseekModel)" }
         if ($cfg.customArgs) { $cmdParts += ($cfg.customArgs -split ' ') }
         $cmdString = $cmdParts -join ' '
         Write-Host ">>> $cmdString (DeepSeek API)" -ForegroundColor Green

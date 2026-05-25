@@ -726,7 +726,7 @@ function Launch-Codex([string[]]$passArgs) {
         $foundSep = $false
         $skipNext = $false
         foreach ($a in $passArgs) {
-            if ($skipNext) { $cmdParts += $a; $skipNext = $false; continue }
+            if ($skipNext) { if ($isDeepSeek) { $cmdParts += "--model=$a" } else { $cmdParts += $a }; $skipNext = $false; continue }
             if ($a -eq "--") {
                 $foundSep = $true
                 continue
@@ -750,8 +750,7 @@ function Launch-Codex([string[]]$passArgs) {
             }
         }
         if (-not $hasModel -and $model) {
-            $cmdParts += "--model"
-            $cmdParts += $model
+            if ($isDeepSeek) { $cmdParts += "--model=$model" } else { $cmdParts += "--model"; $cmdParts += $model }
         }
         if ($isOllama) { $cmdParts += "--" }
         if (-not $hasYolo -and $cfg.fullAuto) {
@@ -765,8 +764,7 @@ function Launch-Codex([string[]]$passArgs) {
         }
     } else {
         if ($model) {
-            $cmdParts += "--model"
-            $cmdParts += $model
+            if ($isDeepSeek) { $cmdParts += "--model=$model" } else { $cmdParts += "--model"; $cmdParts += $model }
         }
         if ($isOllama) { $cmdParts += "--" }
         if ($cfg.fullAuto) {

@@ -729,8 +729,7 @@ function Launch-ClaudeOllama {
         $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
 
         $cmdParts = @("claude")
-        $cmdParts += "--model"
-        $cmdParts += $cfg.deepseekModel
+        $cmdParts += "--model=$($cfg.deepseekModel)"
         if ($cfg.skipPermissions) {
             $cmdParts += "--dangerously-skip-permissions"
         }
@@ -965,7 +964,7 @@ if ($args.Count -gt 0) {
     }
     $cmdParts = if ($cfg.provider -eq "deepseek") {
         $parts = @("claude")
-        if (-not $hasModel) { $parts += @("--model", $cfg.deepseekModel) }
+        if (-not $hasModel) { $parts += "--model=$($cfg.deepseekModel)" }
         $parts
     } else {
         @("ollama", "launch", "claude", "--model", $cfg.selectedModel, "--")
