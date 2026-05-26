@@ -487,13 +487,13 @@ show_main_menu() {
     echo -e "[4] Launch Codex CLI (via Ollama) ${CLR_GREEN}"
     echo -e "[5] Launch Claude Code CLI (via Ollama) ${CLR_GREEN}"
     echo -e "[6] Launch Codex App (via Ollama) ${CLR_GREEN}"
-    echo -e "[7] Check / Fix Ollama Sign-in ${CLR_WHITE}"
-    echo -e "[8] Clear Version Cache ${CLR_WHITE}"
     if [[ -d /Applications/Claude.app ]] || [[ -d /Applications/Claude\ Code.app ]]; then
-        [[ "$oExists" == "YES" ]] && echo -e "[9] Launch Claude Code Desktop (via Ollama) ${CLR_GREEN}" || echo -e "[9] Launch Claude Desktop [Ollama not installed] ${CLR_GRAY}"
+        [[ "$oExists" == "YES" ]] && echo -e "[7] Launch Claude Code Desktop (via Ollama) ${CLR_GREEN}" || echo -e "[7] Launch Claude Desktop [Ollama not installed] ${CLR_GRAY}"
     else
-        echo -e "[9] Launch Claude Desktop [not installed] ${CLR_GRAY}"
+        echo -e "[7] Launch Claude Desktop [not installed] ${CLR_GRAY}"
     fi
+    echo -e "[8] Check / Fix Ollama Sign-in ${CLR_WHITE}"
+    echo -e "[9] Clear Version Cache ${CLR_WHITE}"
     local permText
     [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
     echo -e "[T] Toggle Permission Bypass [currently: $permText] ${CLR_WHITE}"
@@ -566,14 +566,14 @@ while true; do
             command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
             launch_codex_app
             ;;
-        7) check_ollama_signin ;;
-        8)
-            cache_set "ollamaLastChecked" ""
-            echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1
-            ;;
-        9)
+        7)
             command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
             launch_claude_desktop
+            ;;
+        8) check_ollama_signin ;;
+        9)
+            cache_set "ollamaLastChecked" ""
+            echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1
             ;;
         t)
             local sp; sp=$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")

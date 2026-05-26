@@ -70,9 +70,9 @@ Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Deskto
 | 4 | Launch Codex CLI (via Ollama) |
 | 5 | Launch Claude Code CLI (via Ollama) |
 | 6 | Launch Codex App (via Ollama) |
-| 7 | Check / Fix Ollama Sign-in |
-| 8 | Clear Version Cache |
-| 9 | Launch Claude Code Desktop (via Ollama) |
+| 7 | Launch Claude Code Desktop (via Ollama) |
+| 8 | Check / Fix Ollama Sign-in |
+| 9 | Clear Version Cache |
 | T | Toggle Permission Bypass |
 
 **Config:** Model: `kimi-k2.6:cloud` · Source: cloud · Skip-perms: ON

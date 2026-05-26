@@ -852,15 +852,15 @@ function Show-MainMenu {
         $reason = if (-not $oExists) { "Ollama not installed" } else { "Codex CLI not installed" }
         Write-Host "[6] Launch Codex App [$reason]" -ForegroundColor DarkGray
     }
-    Write-Host "[7] Check / Fix Ollama Sign-in" -ForegroundColor White
-    Write-Host "[8] Clear Version Cache" -ForegroundColor White
     $cDesktop = Test-ClaudeDesktopInstalled
     if ($cDesktop -and $oExists) {
-        Write-Host "[9] Launch Claude Code Desktop (via Ollama)" -ForegroundColor Green
+        Write-Host "[7] Launch Claude Code Desktop (via Ollama)" -ForegroundColor Green
     } else {
         $reason = if (-not $oExists) { "Ollama not installed" } else { "Claude Desktop not installed" }
-        Write-Host "[9] Launch Claude Desktop [$reason]" -ForegroundColor DarkGray
+        Write-Host "[7] Launch Claude Desktop [$reason]" -ForegroundColor DarkGray
     }
+    Write-Host "[8] Check / Fix Ollama Sign-in" -ForegroundColor White
+    Write-Host "[9] Clear Version Cache" -ForegroundColor White
     $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
     Write-Host "[T] Toggle Permission Bypass [currently: $permText]" -ForegroundColor White
     Write-Host "[Q] Quit" -ForegroundColor Magenta
@@ -941,14 +941,7 @@ while ($true) {
                 Read-Host "Press Enter to continue"
             } else { Launch-CodexApp }
         }
-        "7" { Check-OllamaSignin }
-        "8" {
-            $cache = Get-VersionCache
-            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""
-            Save-VersionCache $cache
-            Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
-        }
-        "9" {
+        "7" {
             if (-not (Test-CommandExists "ollama")) {
                 Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
                 Read-Host "Press Enter to continue"
@@ -956,6 +949,13 @@ while ($true) {
                 Write-Host "Claude Desktop not installed. Install from https://claude.ai/download" -ForegroundColor Red
                 Read-Host "Press Enter to continue"
             } else { Launch-ClaudeDesktop }
+        }
+        "8" { Check-OllamaSignin }
+        "9" {
+            $cache = Get-VersionCache
+            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""
+            Save-VersionCache $cache
+            Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
         }
         "t" {
             $cfg = Get-Config
