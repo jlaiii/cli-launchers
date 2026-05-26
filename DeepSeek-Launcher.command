@@ -252,18 +252,18 @@ launch_codex_app() {
     local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
     local codexHome="$HOME/.codex"
     mkdir -p "$codexHome"
-    local configFile="$codexHome/config.toml"
-    local backupFile="$codexHome/config.toml.cli-launcher-backup"
-    local hadConfig=0
-    [[ -f "$configFile" ]] && { cp "$configFile" "$backupFile"; hadConfig=1; }
+    # Move aside all state files that could override our DeepSeek config
+    local -a stateFiles=("config.toml" "auth.json" "ollama-launch-models.json" ".codex-global-state.json")
+    local -a backups=()
+    for fn in "${stateFiles[@]}"; do
+        local path="$codexHome/$fn"
+        if [[ -f "$path" ]]; then
+            mv "$path" "$path.cli-launcher-backup"
+            backups+=("$path")
+        fi
+    done
 
-    # Temporarily remove auth.json so it doesn't override our provider
-    local authFile="$codexHome/auth.json"
-    local authBackup="$codexHome/auth.json.cli-launcher-backup"
-    local hadAuth=0
-    [[ -f "$authFile" ]] && { mv "$authFile" "$authBackup"; hadAuth=1; }
-
-    cat > "$configFile" << TOML
+    cat > "$codexHome/config.toml" << TOML
 model = "$model"
 model_provider = "deepseek"
 model_reasoning_effort = "high"
@@ -280,13 +280,11 @@ TOML
     echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
     "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
 
-    # Restore original config + auth
-    if [[ "$hadConfig" == "1" ]]; then
-        cp "$backupFile" "$configFile"; rm -f "$backupFile"
-    else
-        rm -f "$configFile"
-    fi
-    [[ "$hadAuth" == "1" ]] && mv "$authBackup" "$authFile"
+    # Restore all state files
+    for path in "${backups[@]}"; do
+        mv "$path.cli-launcher-backup" "$path"
+    done
+    rm -f "$codexHome/config.toml.cli-launcher-backup"
     read -rp "Session ended. Press Enter" || true
 }
 

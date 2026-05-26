@@ -347,17 +347,24 @@ function Launch-CodexApp {
     $codexHome = Join-Path $env:USERPROFILE ".codex"
     if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
 
-    # Back up existing config + auth, write a clean DeepSeek config
-    $configFile = Join-Path $codexHome "config.toml"
-    $backupFile = Join-Path $codexHome "config.toml.cli-launcher-backup"
-    $hadConfig = Test-Path $configFile
-    if ($hadConfig) { Copy-Item $configFile $backupFile -Force }
-
-    # Temporarily remove auth.json so it doesn't override our provider
-    $authFile = Join-Path $codexHome "auth.json"
-    $authBackup = Join-Path $codexHome "auth.json.cli-launcher-backup"
-    $hadAuth = Test-Path $authFile
-    if ($hadAuth) { Move-Item $authFile $authBackup -Force }
+    # Move aside all state files that could override our DeepSeek config.
+    # ollama launch codex-app creates ollama-launch-models.json which persists
+    # provider selection even if config.toml is replaced.
+    $backups = @()
+    $stateFiles = @(
+        "config.toml",
+        "auth.json",
+        "ollama-launch-models.json",
+        ".codex-global-state.json"
+    )
+    foreach ($fn in $stateFiles) {
+        $path = Join-Path $codexHome $fn
+        if (Test-Path $path) {
+            $backupPath = "$path.cli-launcher-backup"
+            Move-Item $path $backupPath -Force
+            $backups += @{ Original = $path; Backup = $backupPath }
+        }
+    }
 
     $toml = @"
 model = "$($cfg.deepseekModel)"
@@ -370,7 +377,7 @@ name = "DeepSeek"
 base_url = "https://api.deepseek.com/v1"
 env_key = "DEEPSEEK_API_KEY"
 "@
-    Set-Content -LiteralPath $configFile -Value $toml -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $codexHome "config.toml") -Value $toml -Encoding UTF8
     $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
 
     $cmdParts = @("codex", "app")
@@ -384,10 +391,17 @@ env_key = "DEEPSEEK_API_KEY"
         if ($LASTEXITCODE -ne 0) { Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow }
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
 
-    # Restore original config + auth
-    if ($hadConfig) { Copy-Item $backupFile $configFile -Force; Remove-Item $backupFile -Force }
-    else { Remove-Item $configFile -Force -ErrorAction SilentlyContinue }
-    if ($hadAuth) { Move-Item $authBackup $authFile -Force }
+    # Restore all state files
+    foreach ($b in $backups) {
+        Move-Item $b.Backup $b.Original -Force
+    }
+    # Clean up our generated config if no original existed
+    $genConfig = Join-Path $codexHome "config.toml"
+    if (Test-Path $genConfig) {
+        $wasBackedUp = $false
+        foreach ($b in $backups) { if ($b.Original -eq $genConfig) { $wasBackedUp = $true } }
+        if (-not $wasBackedUp) { Remove-Item $genConfig -Force -ErrorAction SilentlyContinue }
+    }
     Read-Host "Session ended. Press Enter to return to menu"
 }
 
