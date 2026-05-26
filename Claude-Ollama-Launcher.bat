@@ -3,7 +3,7 @@ set "BAT_DIR=%~dp0"
 set "PSFILE=%TEMP%\ClaudeOllamaLauncher.ps1"
 powershell -NoProfile -Command "Get-Content '%~f0' -Encoding UTF8 | Select-Object -Skip 9 | Out-File '%PSFILE%' -Encoding UTF8"
 set "BatDir=%~dp0"
-powershell -ExecutionPolicy Bypass -Command "& '%PSFILE%' exit $LASTEXITCODE"
+powershell -ExecutionPolicy Bypass -Command "& '%PSFILE%'; exit $LASTEXITCODE"
 set "EC=%errorlevel%"
 del /Q "%PSFILE%" 2>nul
 exit /b %EC%

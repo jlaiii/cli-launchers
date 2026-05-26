@@ -750,21 +750,44 @@ function Launch-CodexApp([string[]]$passArgs) {
             return
         }
 
-        Write-Host "Configuring DeepSeek API environment..." -ForegroundColor Cyan
-        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
+        Write-Host "Configuring DeepSeek API for Codex App..." -ForegroundColor Cyan
         Write-Host "Using model: $($cfg.deepseekModel)" -ForegroundColor Cyan
 
-        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
+        $codexHome = Join-Path $env:USERPROFILE ".codex"
+        if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
+        $configFile = Join-Path $codexHome "config.toml"
+        $backupFile = Join-Path $codexHome "config.toml.cli-launcher-backup"
+        $restoreConfig = $false
+        if (Test-Path $configFile) {
+            Copy-Item $configFile $backupFile -Force
+            $restoreConfig = $true
+        }
+        $toml = @"
+model = "$($cfg.deepseekModel)"
+
+[model_providers.deepseek]
+base_url = "https://api.deepseek.com/v1"
+env_key = "DEEPSEEK_API_KEY"
+name = "DeepSeek"
+
+# Use deepseek as the model provider
+model_provider = "deepseek"
+"@
+        # Merge with existing config if it exists
+        if ($restoreConfig) {
+            $existing = Get-Content $backupFile -Raw
+            $toml = $existing + "`n`n# === DeepSeek section added by CLI Launcher ===`n" + $toml
+        }
+        Set-Content -LiteralPath $configFile -Value $toml -Encoding UTF8
+
+        $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
+        $cmdParts = @("codex", "app")
         if ($passArgs -and $passArgs.Count -gt 0) {
             $cmdParts += $passArgs
         }
-        if ($cfg.customArgs) {
-            $cmdParts += ($cfg.customArgs -split ' ')
-        }
 
         $cmdString = $cmdParts -join ' '
-        Write-Host "`n>>> $cmdString (DeepSeek API)" -ForegroundColor Green
+        Write-Host "`n>>> $cmdString (DeepSeek API via config.toml)" -ForegroundColor Green
         Write-Host ("-" * 50) -ForegroundColor DarkGray
 
         Clear-Host
@@ -777,6 +800,14 @@ function Launch-CodexApp([string[]]$passArgs) {
         } catch {
             Write-Host "ERROR launching Codex App: $_" -ForegroundColor Red
         }
+        # Restore original config
+        if ($restoreConfig) {
+            Copy-Item $backupFile $configFile -Force
+            Remove-Item $backupFile -Force -ErrorAction SilentlyContinue
+        } else {
+            Remove-Item $configFile -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item $env:DEEPSEEK_API_KEY
     } else {
         $model = $cfg.ollamaModel
         if (-not (Start-OllamaServer)) {
@@ -964,10 +995,22 @@ if ($args.Count -gt 0) {
             Write-Host "ERROR: DeepSeek API key not set. Run launcher menu to configure." -ForegroundColor Red
             exit 1
         }
-        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
+        $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
+        $codexHome = Join-Path $env:USERPROFILE ".codex"
+        if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
+        $profileFile = Join-Path $codexHome "cli-launcher-deepseek.config.toml"
+        $toml = @"
+model = "$($cfg.deepseekModel)"
+model_provider = "deepseek"
+
+[model_providers.deepseek]
+base_url = "https://api.deepseek.com/v1"
+env_key = "DEEPSEEK_API_KEY"
+name = "DeepSeek"
+"@
+        Set-Content -LiteralPath $profileFile -Value $toml -Encoding UTF8
         Clear-Host
-        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
+        $cmdParts = @("codex", "app", "--profile-v2", "cli-launcher-deepseek")
         if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
         if ($cfg.customArgs) { $cmdParts += ($cfg.customArgs -split ' ') }
         $cmdString = $cmdParts -join ' '
@@ -975,8 +1018,10 @@ if ($args.Count -gt 0) {
         try {
             $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
             & $cmdParts[0] @cmdArgs
+            Remove-Item $profileFile -Force -ErrorAction SilentlyContinue
             exit $LASTEXITCODE
         } catch {
+            Remove-Item $profileFile -Force -ErrorAction SilentlyContinue
             Write-Host "ERROR: $_" -ForegroundColor Red
             exit 1
         }
