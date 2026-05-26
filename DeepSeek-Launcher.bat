@@ -435,9 +435,9 @@ function Write-ClaudeDesktop3pConfig {
             AskUserQuestion   = "allow"
             SendUserMessage   = "allow"
         }
-        permissions = [ordered]@{
-            defaultMode = "bypassPermissions"
-        }
+        # Setting defaultMode here has no effect — the Desktop app controls
+        # permission mode via its own internal toggle. builtinToolPolicy above
+        # already auto-approves every tool regardless of the session mode label.
     }
 
     $roaming = [Environment]::GetFolderPath("ApplicationData")
@@ -650,12 +650,9 @@ function Launch-ClaudeDesktop {
     Write-Host "  If you don't see the Gateway option:" -ForegroundColor Cyan
     Write-Host "    Help -> Troubleshooting -> Enable Developer Mode" -ForegroundColor White
     Write-Host ""
-    Write-Host "  To enable Bypass Permissions (auto-approve all tools):" -ForegroundColor Cyan
-    Write-Host "    1. Click your avatar (bottom-left) -> Settings" -ForegroundColor White
-    Write-Host "    2. Select 'Claude Code' in the sidebar" -ForegroundColor White
-    Write-Host "    3. Turn ON 'Allow bypass permissions mode'" -ForegroundColor White
-    Write-Host "    4. Start a NEW chat, then select Bypass from" -ForegroundColor White
-    Write-Host "       the permission mode dropdown next to the chat input" -ForegroundColor White
+    Write-Host "  All tools are auto-approved via enterprise policy." -ForegroundColor Green
+    Write-Host "  The session mode label may show 'Accept Edits' but" -ForegroundColor Green
+    Write-Host "  Bash, Write, WebFetch, etc. all run without prompts." -ForegroundColor Green
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Yellow
     Write-Host ""

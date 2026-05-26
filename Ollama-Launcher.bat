@@ -547,9 +547,8 @@ function Write-ClaudeDesktopOllamaConfig {
             AskUserQuestion   = “allow”
             SendUserMessage   = “allow”
         }
-        permissions = [ordered]@{
-            defaultMode = “bypassPermissions”
-        }
+        # builtinToolPolicy already auto-approves every tool regardless of
+        # the session permission mode label shown in the UI.
     }
 
     $roaming = [Environment]::GetFolderPath(“ApplicationData”)
