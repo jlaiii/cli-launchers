@@ -34,7 +34,7 @@ $script:DefaultConfig = @{
     skipPermissions  = $true     # if true, adds --dangerously-skip-permissions
     customCommand    = ""        # e.g. "ollama launch claude" or leave empty for default
     provider         = "ollama"  # "ollama" or "deepseek"
-    deepseekModel    = "deepseek-chat"
+    deepseekModel    = "deepseek-v4-pro"
     deepseekApiKey   = ""
 }
 
@@ -400,8 +400,8 @@ function Show-DeepSeekModelPicker {
     $cfg = Get-Config
     Write-Host "Current DeepSeek model: $($cfg.deepseekModel)" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  [1] DeepSeek-V4 (recommended) -> deepseek-chat" -ForegroundColor Yellow
-    Write-Host "  [2] DeepSeek-Flash             -> deepseek-reasoner" -ForegroundColor Yellow
+    Write-Host "  [1] DeepSeek V4 Pro (Recommended) -> deepseek-v4-pro" -ForegroundColor Yellow
+    Write-Host "  [2] DeepSeek V4 Flash              -> deepseek-v4-flash" -ForegroundColor Yellow
     Write-Host "  [M] Manual entry (custom model ID)" -ForegroundColor Yellow
     Write-Host "  [B] Back to menu" -ForegroundColor Magenta
     Write-Host ""
@@ -410,20 +410,20 @@ function Show-DeepSeekModelPicker {
     switch ($choice.ToLower()) {
         "1" {
             $cfg = Get-Config
-            $cfg.deepseekModel = "deepseek-chat"
+            $cfg.deepseekModel = "deepseek-v4-pro"
             Save-Config $cfg
-            Write-Host "DeepSeek model set to: deepseek-chat (V4)" -ForegroundColor Green
+            Write-Host "DeepSeek model set to: deepseek-v4-pro (V4 Pro)" -ForegroundColor Green
             Read-Host "Press Enter to continue"
         }
         "2" {
             $cfg = Get-Config
-            $cfg.deepseekModel = "deepseek-reasoner"
+            $cfg.deepseekModel = "deepseek-v4-flash"
             Save-Config $cfg
-            Write-Host "DeepSeek model set to: deepseek-reasoner (Flash)" -ForegroundColor Green
+            Write-Host "DeepSeek model set to: deepseek-v4-flash (Flash)" -ForegroundColor Green
             Read-Host "Press Enter to continue"
         }
         "m" {
-            $manual = Read-Host "Enter the DeepSeek model ID (e.g., deepseek-chat, deepseek-reasoner)"
+            $manual = Read-Host "Enter the DeepSeek model ID (e.g., deepseek-v4-pro, deepseek-v4-flash)"
             if ($manual) {
                 $cfg = Get-Config
                 $cfg.deepseekModel = $manual
@@ -738,7 +738,7 @@ function Launch-ClaudeOllama {
         $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
         $env:ANTHROPIC_AUTH_TOKEN = $cfg.deepseekApiKey
 
-        $cmdParts = @("claude", "--model", $cfg.deepseekModel)
+        $cmdParts = @("claude")
         if ($cfg.skipPermissions) {
             $cmdParts += "--dangerously-skip-permissions"
         }
@@ -977,7 +977,7 @@ if ($args.Count -gt 0) {
 
     Clear-Host
     $cmdParts = if ($cfg.provider -eq "deepseek") {
-        @("claude", "--model", $cfg.deepseekModel)
+        @("claude")
     } elseif ($cfg.customCommand) {
         $parts = $cfg.customCommand.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
         $parts += "--model"
