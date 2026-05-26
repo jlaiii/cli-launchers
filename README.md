@@ -2,7 +2,7 @@
 
 Two launchers organized by **provider**: pick Ollama or DeepSeek, and launch any supported AI coding assistant from a single menu.
 
-- **Ollama Launcher** — Codex CLI + Claude Code via Ollama
+- **Ollama Launcher** — Codex CLI + Claude Code + Codex App via Ollama
 - **DeepSeek Launcher** — Codex CLI + Claude Code + Codex App via DeepSeek API
 
 Each launcher is a single-file script (.bat / .command / .ps1). It checks prerequisites, auto-installs missing tools, keeps everything updated, and gives you a picker for models — then launches.
@@ -13,7 +13,7 @@ Each launcher is a single-file script (.bat / .command / .ps1). It checks prereq
 
 **Windows (PowerShell)**
 ```powershell
-# Ollama Launcher (Codex CLI + Claude Code)
+# Ollama Launcher (Codex CLI + Claude Code + Codex App)
 irm https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Ollama-Launcher.ps1 | iex
 
 # DeepSeek Launcher (Codex CLI + Claude Code + Codex App)
@@ -22,7 +22,7 @@ irm https://raw.githubusercontent.com/jlaiii/cli-launchers/main/DeepSeek-Launche
 
 **macOS (Terminal)**
 ```bash
-# Ollama Launcher (Codex CLI + Claude Code)
+# Ollama Launcher (Codex CLI + Claude Code + Codex App)
 curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/Ollama-Launcher.command | bash
 
 # DeepSeek Launcher (Codex CLI + Claude Code + Codex App)
@@ -35,6 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/DeepSeek-
 :: Ollama Launcher
 Ollama-Launcher.bat codex          :: launch Codex CLI
 Ollama-Launcher.bat claude         :: launch Claude Code
+Ollama-Launcher.bat codex-app      :: launch Codex App
 
 :: DeepSeek Launcher
 DeepSeek-Launcher.bat codex        :: launch Codex CLI
@@ -46,7 +47,7 @@ DeepSeek-Launcher.bat codex-app    :: launch Codex App
 
 ## Ollama Launcher
 
-Launches **Codex CLI** and **Claude Code** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
+Launches **Codex CLI**, **Claude Code**, and **Codex App** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
 
 **What it handles:**
 - Detects and auto-installs Ollama
@@ -55,7 +56,7 @@ Launches **Codex CLI** and **Claude Code** through Ollama. Browse cloud/local mo
 - Verifies Ollama sign-in status
 - Model browser — top 10 cloud models, local models, or manual entry
 - Auto-starts the Ollama server if not running
-- Launches via `ollama launch codex` or `ollama launch claude`
+- Launches via `ollama launch codex`, `ollama launch claude`, or `ollama launch codex-app`
 
 **Menu:**
 | # | Option |
@@ -65,8 +66,9 @@ Launches **Codex CLI** and **Claude Code** through Ollama. Browse cloud/local mo
 | 3 | Pull Selected Model Locally |
 | 4 | Launch Codex CLI (via Ollama) |
 | 5 | Launch Claude Code (via Ollama) |
-| 6 | Check / Fix Ollama Sign-in |
-| 7 | Clear Version Cache |
+| 6 | Launch Codex App (via Ollama) |
+| 7 | Check / Fix Ollama Sign-in |
+| 8 | Clear Version Cache |
 | T | Toggle Permission Bypass |
 
 **Config:** Model: `kimi-k2.6:cloud` · Source: cloud · Skip-perms: ON
@@ -84,7 +86,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 - DeepSeek model picker — V4 Pro (`deepseek-v4-pro`), V4 Flash (`deepseek-v4-flash`), or manual entry
 - API key setup and persistence
 - Codex CLI: sets `OPENAI_API_KEY` + `OPENAI_BASE_URL` for direct DeepSeek access
-- Codex App: writes config.toml with DeepSeek provider + `wire_api = "chat"`, backs up and restores any existing config
+- Codex App: uses `-c` CLI overrides (`model_provider=deepseek`, `wire_api=chat`) — no file changes needed
 - Claude Code: sets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` for Anthropic-compatible endpoint
 
 **Menu:**
@@ -128,7 +130,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 - The `.bat` files are self-extracting — they embed a full PowerShell script and clean up the temp file when done.
 - The `.command` files are plain bash scripts that use `python3` for JSON persistence.
 - API keys are stored locally in config files and only used as environment variables at launch time.
-- The DeepSeek Codex App integration backs up your existing `config.toml`, writes a clean DeepSeek config for the session, then restores the original when the app exits.
+- The DeepSeek Codex App integration uses `-c` CLI config overrides — no files in `~/.codex` are touched, so existing Ollama or OpenAI configs are unaffected.
 
 ---
 
