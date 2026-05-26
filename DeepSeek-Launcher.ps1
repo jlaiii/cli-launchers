@@ -302,7 +302,7 @@ function Launch-CodexCLI {
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
+        $cmdPath = (Get-Command "codex.cmd" -ErrorAction Stop).Source
         $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
         Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
         Write-Host "Launched in new window." -ForegroundColor Cyan
@@ -353,7 +353,7 @@ function Launch-CodexApp {
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
+        $cmdPath = (Get-Command "codex.cmd" -ErrorAction Stop).Source
         $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
         Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
         Write-Host "Launched in new window." -ForegroundColor Cyan
