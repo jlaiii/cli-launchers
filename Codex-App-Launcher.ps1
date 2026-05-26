@@ -760,7 +760,8 @@ function Launch-CodexApp([string[]]$passArgs) {
 
         Clear-Host
         try {
-            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow
             }
@@ -963,7 +964,8 @@ if ($args.Count -gt 0) {
         $cmdString = $cmdParts -join ' '
         Write-Host ">>> $cmdString (DeepSeek API)" -ForegroundColor Green
         try {
-            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
             exit $LASTEXITCODE
         } catch {
             Write-Host "ERROR: $_" -ForegroundColor Red

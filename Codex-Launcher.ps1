@@ -782,7 +782,8 @@ function Launch-Codex([string[]]$passArgs) {
     Clear-Host
     try {
         if ($cfg.provider -eq "deepseek") {
-            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
         } else {
             $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
             if ($proc.ExitCode -ne 0) {

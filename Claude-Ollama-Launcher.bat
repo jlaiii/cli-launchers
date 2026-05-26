@@ -749,7 +749,8 @@ function Launch-ClaudeOllama {
 
         Clear-Host
         try {
-            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "Claude Code exited with code $LASTEXITCODE." -ForegroundColor Yellow
             }
@@ -992,7 +993,8 @@ if ($args.Count -gt 0) {
     Write-Host ">>> $cmdString $(if ($cfg.provider -eq 'deepseek') { '(DeepSeek API)' })" -ForegroundColor Green
     try {
         if ($cfg.provider -eq "deepseek") {
-            & $cmdParts[0] @($cmdParts[1..($cmdParts.Length-1)])
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
         } else {
             $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
         }
