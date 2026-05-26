@@ -426,6 +426,9 @@ function Write-ClaudeDesktop3pConfig {
             AskUserQuestion   = "allow"
             SendUserMessage   = "allow"
         }
+        permissions = [ordered]@{
+            defaultMode = "bypassPermissions"
+        }
     }
 
     $roaming = [Environment]::GetFolderPath("ApplicationData")
@@ -572,6 +575,20 @@ function Clear-ClaudeDesktopSession {
     if (Test-Path $antDidPath) {
         Remove-Item $antDidPath -Force
         Write-Host "  Removed device identity file" -ForegroundColor DarkGray
+    }
+
+    # Write bypass permission mode into the Desktop's own config.json
+    # so the embedded Claude Code starts in bypassPermissions mode
+    if (-not (Test-Path $cfgPath)) {
+        $cfg = New-Object PSObject
+    } else {
+        try { $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { $cfg = New-Object PSObject }
+    }
+    if (-not ($cfg.PSObject.Properties.Name -contains "permissionMode")) {
+        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypass" -Force
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText($cfgPath, ($cfg | ConvertTo-Json -Depth 3), $utf8NoBom)
+        Write-Host "  Set permission mode to bypass" -ForegroundColor DarkGray
     }
 }
 

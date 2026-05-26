@@ -394,6 +394,9 @@ config = {
         'Task': 'allow', 'TaskCreate': 'allow', 'TaskUpdate': 'allow',
         'TaskGet': 'allow', 'TaskList': 'allow', 'TaskStop': 'allow',
         'Skill': 'allow', 'AskUserQuestion': 'allow', 'SendUserMessage': 'allow'
+    },
+    'permissions': {
+        'defaultMode': 'bypassPermissions'
     }
 }
 with open(os.path.join(lib, cid + '.json'), 'w') as f:
