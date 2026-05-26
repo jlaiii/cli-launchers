@@ -746,39 +746,27 @@ function Launch-CodexApp([string[]]$passArgs) {
 
         $codexHome = Join-Path $env:USERPROFILE ".codex"
         if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
-        $configFile = Join-Path $codexHome "config.toml"
-        $backupFile = Join-Path $codexHome "config.toml.cli-launcher-backup"
-        $restoreConfig = $false
-        if (Test-Path $configFile) {
-            Copy-Item $configFile $backupFile -Force
-            $restoreConfig = $true
-        }
+        $profileFile = Join-Path $codexHome "cli-launcher-deepseek.config.toml"
         $toml = @"
 model = "$($cfg.deepseekModel)"
+model_provider = "deepseek"
+wire_api = "chat"
 
 [model_providers.deepseek]
+name = "DeepSeek"
 base_url = "https://api.deepseek.com/v1"
 env_key = "DEEPSEEK_API_KEY"
-name = "DeepSeek"
-
-# Use deepseek as the model provider
-model_provider = "deepseek"
 "@
-        # Merge with existing config if it exists
-        if ($restoreConfig) {
-            $existing = Get-Content $backupFile -Raw
-            $toml = $existing + "`n`n# === DeepSeek section added by CLI Launcher ===`n" + $toml
-        }
-        Set-Content -LiteralPath $configFile -Value $toml -Encoding UTF8
+        Set-Content -LiteralPath $profileFile -Value $toml -Encoding UTF8
 
         $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
-        $cmdParts = @("codex", "app")
+        $cmdParts = @("codex", "app", "--profile", "cli-launcher-deepseek")
         if ($passArgs -and $passArgs.Count -gt 0) {
             $cmdParts += $passArgs
         }
 
         $cmdString = $cmdParts -join ' '
-        Write-Host "`n>>> $cmdString (DeepSeek API via config.toml)" -ForegroundColor Green
+        Write-Host "`n>>> $cmdString (DeepSeek API via profile)" -ForegroundColor Green
         Write-Host ("-" * 50) -ForegroundColor DarkGray
 
         Clear-Host
@@ -791,13 +779,7 @@ model_provider = "deepseek"
         } catch {
             Write-Host "ERROR launching Codex App: $_" -ForegroundColor Red
         }
-        # Restore original config
-        if ($restoreConfig) {
-            Copy-Item $backupFile $configFile -Force
-            Remove-Item $backupFile -Force -ErrorAction SilentlyContinue
-        } else {
-            Remove-Item $configFile -Force -ErrorAction SilentlyContinue
-        }
+        Remove-Item $profileFile -Force -ErrorAction SilentlyContinue
         Remove-Item $env:DEEPSEEK_API_KEY
     } else {
         $model = $cfg.ollamaModel
@@ -993,15 +975,16 @@ if ($args.Count -gt 0) {
         $toml = @"
 model = "$($cfg.deepseekModel)"
 model_provider = "deepseek"
+wire_api = "chat"
 
 [model_providers.deepseek]
+name = "DeepSeek"
 base_url = "https://api.deepseek.com/v1"
 env_key = "DEEPSEEK_API_KEY"
-name = "DeepSeek"
 "@
         Set-Content -LiteralPath $profileFile -Value $toml -Encoding UTF8
         Clear-Host
-        $cmdParts = @("codex", "app", "--profile-v2", "cli-launcher-deepseek")
+        $cmdParts = @("codex", "app", "--profile", "cli-launcher-deepseek")
         if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
         if ($cfg.customArgs) { $cmdParts += ($cfg.customArgs -split ' ') }
         $cmdString = $cmdParts -join ' '

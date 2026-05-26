@@ -693,8 +693,6 @@ function launch_claude() {
 function show_status() {
     local cExists="NO" oExists="NO" authOk="NO"
     command -v claude &>/dev/null && cExists="YES"
-    command -v ollama &>/dev/null && oExists="YES"
-    test_ollama_auth && authOk="YES"
 
     local model source provider
     model=$(config_get "selectedModel" "$DEFAULT_MODEL")
@@ -702,6 +700,9 @@ function show_status() {
     provider=$(config_get "provider" "$DEFAULT_PROVIDER")
     local skip
     skip=$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")
+
+    local isOllama=0
+    [[ "$(lc "$provider")" != "deepseek" ]] && isOllama=1
 
     local cUpdate="" oUpdate=""
     if [[ "$cExists" == "YES" ]]; then
@@ -712,12 +713,16 @@ function show_status() {
             cUpdate=" (update v$cLat available)"
         fi
     fi
-    if [[ "$oExists" == "YES" ]]; then
-        local oInst oLat
-        oInst=$(get_ollama_installed_version)
-        oLat=$(get_ollama_latest_version)
-        if [[ -n "$oInst" && -n "$oLat" ]] && version_greater "$oInst" "$oLat"; then
-            oUpdate=" (update v$oLat available)"
+    if [[ "$isOllama" == "1" ]]; then
+        command -v ollama &>/dev/null && oExists="YES"
+        test_ollama_auth && authOk="YES"
+        if [[ "$oExists" == "YES" ]]; then
+            local oInst oLat
+            oInst=$(get_ollama_installed_version)
+            oLat=$(get_ollama_latest_version)
+            if [[ -n "$oInst" && -n "$oLat" ]] && version_greater "$oInst" "$oLat"; then
+                oUpdate=" (update v$oLat available)"
+            fi
         fi
     fi
 
@@ -733,32 +738,33 @@ function show_status() {
     else
         echo -e "  Claude Code   : ${CLR_RED}NOT INSTALLED${CLR_RESET}"
     fi
-    if [[ "$oExists" == "YES" ]]; then
-        local oInst
-        oInst=$(get_ollama_installed_version)
-        if [[ -n "$oUpdate" ]]; then
-            echo -e "  Ollama        : ${CLR_YELLOW}v$oInst$oUpdate${CLR_RESET}"
-        else
-            echo -e "  Ollama        : ${CLR_GREEN}v$oInst (up to date)${CLR_RESET}"
-        fi
-    else
-        echo -e "  Ollama        : ${CLR_RED}NOT INSTALLED${CLR_RESET}"
-    fi
-    if [[ "$authOk" == "YES" ]]; then
-        echo -e "  Ollama Auth   : ${CLR_GREEN}OK${CLR_RESET}"
-    else
-        echo -e "  Ollama Auth   : ${CLR_RED}NOT SIGNED IN${CLR_RESET}"
-    fi
     echo -e "  Provider      : ${CLR_CYAN}$provider${CLR_RESET}"
     if [[ "$(lc "$provider")" == "deepseek" ]]; then
         local dsModel dsKey dsKeyStatus
         dsModel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
         dsKey=$(config_get "deepseekApiKey" "$DEFAULT_DEEPSEEK_KEY")
         if [[ -n "$dsKey" ]]; then dsKeyStatus="${CLR_GREEN}configured${CLR_RESET}"; else dsKeyStatus="${CLR_RED}MISSING${CLR_RESET}"; fi
-        echo -e "  DeepSeek model: ${CLR_CYAN}$dsModel${CLR_RESET}"
-        echo -e "  DeepSeek key  : $dsKeyStatus"
+        echo -e "  DeepSeek Model: ${CLR_CYAN}$dsModel${CLR_RESET}"
+        echo -e "  DeepSeek Key  : $dsKeyStatus"
+    else
+        echo -e "  Ollama Model  : ${CLR_CYAN}$model [source: $source]${CLR_RESET}"
+        if [[ "$oExists" == "YES" ]]; then
+            local oInst
+            oInst=$(get_ollama_installed_version)
+            if [[ -n "$oUpdate" ]]; then
+                echo -e "  Ollama        : ${CLR_YELLOW}v$oInst$oUpdate${CLR_RESET}"
+            else
+                echo -e "  Ollama        : ${CLR_GREEN}v$oInst (up to date)${CLR_RESET}"
+            fi
+        else
+            echo -e "  Ollama        : ${CLR_RED}NOT INSTALLED${CLR_RESET}"
+        fi
+        if [[ "$authOk" == "YES" ]]; then
+            echo -e "  Ollama Auth   : ${CLR_GREEN}OK${CLR_RESET}"
+        else
+            echo -e "  Ollama Auth   : ${CLR_RED}NOT SIGNED IN${CLR_RESET}"
+        fi
     fi
-    echo -e "  Config model  : ${CLR_CYAN}$model [source: $source]${CLR_RESET}"
     local permText
     if [[ "$skip" == "True" ]]; then permText="ON (--dangerously-skip-permissions)"; else permText="OFF"; fi
     echo -e "  Skip-perms    : ${CLR_CYAN}$permText${CLR_RESET}"
@@ -807,7 +813,7 @@ function show_main_menu() {
     fi
     echo -e "[5] Launch Claude Code ${CLR_GREEN}"
     echo -e "[6] Check / Fix Ollama Sign-in ${CLR_WHITE}"
-    echo -e "[7] Refresh Status ${CLR_WHITE}"
+    echo -e "[7] Clear Version Cache ${CLR_WHITE}"
     local cmdLabel
     cmdLabel=$(config_get "customCommand" "")
     echo -e "[C] Set Custom Launch Command $( [[ -n "$cmdLabel" ]] && echo "[custom: $cmdLabel]" || echo "[default: claude]" ) ${CLR_WHITE}"

@@ -822,14 +822,15 @@ function Test-OllamaAuth {
 # ============================================
 function Show-Status {
     $cExists = Test-CommandExists "claude"
-    $oExists = Test-CommandExists "ollama"
-    $authOk  = Test-OllamaAuth
     $cfg     = Get-Config
+    $isOllama = ($cfg.provider -ne "deepseek")
 
     $claudeUpdate = $false
     $ollamaUpdate = $false
     $claudeInstalledVer = $null
     $ollamaInstalledVer = $null
+    $oExists = $false
+    $authOk  = $false
 
     if ($cExists) {
         $claudeInstalledVer = Get-ClaudeInstalledVersion
@@ -838,11 +839,15 @@ function Show-Status {
             $claudeUpdate = Compare-Versions $claudeInstalledVer $claudeLatestVer
         }
     }
-    if ($oExists) {
-        $ollamaInstalledVer = Get-OllamaInstalledVersion
-        $ollamaLatestVer = Get-OllamaLatestVersion
-        if ($ollamaInstalledVer -and $ollamaLatestVer) {
-            $ollamaUpdate = Compare-Versions $ollamaInstalledVer $ollamaLatestVer
+    if ($isOllama) {
+        $oExists = Test-CommandExists "ollama"
+        $authOk  = Test-OllamaAuth
+        if ($oExists) {
+            $ollamaInstalledVer = Get-OllamaInstalledVersion
+            $ollamaLatestVer = Get-OllamaLatestVersion
+            if ($ollamaInstalledVer -and $ollamaLatestVer) {
+                $ollamaUpdate = Compare-Versions $ollamaInstalledVer $ollamaLatestVer
+            }
         }
     }
 
@@ -856,27 +861,32 @@ function Show-Status {
     } else {
         Write-Host "  Claude Code   : NOT INSTALLED" -ForegroundColor Red
     }
-    if ($oExists) {
-        if ($ollamaUpdate) {
-            Write-Host "  Ollama        : v$ollamaInstalledVer (update v$ollamaLatestVer available)" -ForegroundColor Yellow
-        } else {
-            Write-Host "  Ollama        : v$ollamaInstalledVer (up to date)" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "  Ollama        : NOT INSTALLED" -ForegroundColor Red
-    }
-    if ($authOk) {
-        Write-Host "  Ollama Auth   : OK" -ForegroundColor Green
-    } else {
-        Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
-    }
     Write-Host "  Provider      : $($cfg.provider.ToUpper())" -ForegroundColor Cyan
     if ($cfg.provider -eq "deepseek") {
-        Write-Host "  DS Model      : $($cfg.deepseekModel)" -ForegroundColor Cyan
-        $dsKeyStatus = if ($cfg.deepseekApiKey) { "**** (set)" } else { "(not set)" }
-        Write-Host "  DS API Key    : $dsKeyStatus" -ForegroundColor Cyan
+        Write-Host "  DeepSeek Model: $($cfg.deepseekModel)" -ForegroundColor Cyan
+        $dsKeyStatus = if ($cfg.deepseekApiKey) { "SET" } else { "NOT SET" }
+        if ($cfg.deepseekApiKey) {
+            Write-Host "  DeepSeek Key  : $dsKeyStatus" -ForegroundColor Green
+        } else {
+            Write-Host "  DeepSeek Key  : $dsKeyStatus" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "  Ollama Model  : $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
+        if ($oExists) {
+            if ($ollamaUpdate) {
+                Write-Host "  Ollama        : v$ollamaInstalledVer (update v$ollamaLatestVer available)" -ForegroundColor Yellow
+            } else {
+                Write-Host "  Ollama        : v$ollamaInstalledVer (up to date)" -ForegroundColor Green
+            }
+        } else {
+            Write-Host "  Ollama        : NOT INSTALLED" -ForegroundColor Red
+        }
+        if ($authOk) {
+            Write-Host "  Ollama Auth   : OK" -ForegroundColor Green
+        } else {
+            Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
+        }
     }
-    Write-Host "  Config model  : $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
     $permText = if ($cfg.skipPermissions) { "ON (--dangerously-skip-permissions)" } else { "OFF" }
     Write-Host "  Skip-perms    : $permText" -ForegroundColor Cyan
     if ($cfg.customCommand) {
@@ -894,23 +904,18 @@ function Show-MainMenu {
     $oExists = Test-CommandExists "ollama"
     $cfg = Get-Config
 
-    $claudeUpdate = $false
-    $ollamaUpdate = $false
+    Write-Host "`n[1] Install / Update Claude Code" -ForegroundColor White
     if ($cExists) {
         $inst = Get-ClaudeInstalledVersion
         $lat  = Get-ClaudeLatestVersion
-        if ($inst -and $lat) { $claudeUpdate = Compare-Versions $inst $lat }
+        if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
     }
+    Write-Host "[2] Install / Update Ollama" -ForegroundColor White
     if ($oExists) {
         $inst = Get-OllamaInstalledVersion
         $lat  = Get-OllamaLatestVersion
-        if ($inst -and $lat) { $ollamaUpdate = Compare-Versions $inst $lat }
+        if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
     }
-
-    Write-Host "`n[1] Install / Update Claude Code" -ForegroundColor White
-    if ($claudeUpdate) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
-    Write-Host "[2] Install / Update Ollama" -ForegroundColor White
-    if ($ollamaUpdate) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
     Write-Host "[3] Pick / Change Model  [current: $(if ($cfg.provider -eq "deepseek") { $cfg.deepseekModel } else { $cfg.selectedModel })]" -ForegroundColor White
     if ($cfg.source -eq "cloud" -and $oExists -and $cfg.provider -eq "ollama") {
         Write-Host "[4] Pull Selected Model Locally (ollama pull)" -ForegroundColor White
@@ -919,8 +924,10 @@ function Show-MainMenu {
     }
     $launchLabel = if ($cfg.provider -eq "deepseek") { "DeepSeek -> Claude" } else { "Ollama -> Claude" }
     Write-Host "[5] Launch Claude Code [$launchLabel]" -ForegroundColor Green
-    Write-Host "[6] Check / Fix Ollama Sign-in" -ForegroundColor White
-    Write-Host "[7] Refresh Status" -ForegroundColor White
+    if ($cfg.provider -eq "ollama") {
+        Write-Host "[6] Check / Fix Ollama Sign-in" -ForegroundColor White
+    }
+    Write-Host "[7] Clear Version Cache" -ForegroundColor White
     Write-Host "[8] Switch Provider [current: $($cfg.provider)]" -ForegroundColor White
     $cmdLabel = if ($cfg.customCommand) { "[custom: $($cfg.customCommand)]" } else { "[default: claude]" }
     Write-Host "[C] Set Custom Launch Command $cmdLabel" -ForegroundColor White
@@ -958,8 +965,7 @@ if ($args.Count -gt 0) {
             Install-Ollama
         }
         if (-not (Start-OllamaServer)) { exit 1 }
-    }
-    if ($cfg.provider -eq "deepseek") {
+    } elseif ($cfg.provider -eq "deepseek") {
         if (-not $cfg.deepseekApiKey) {
             Write-Host "DeepSeek API key is not set. Run launcher menu to configure." -ForegroundColor Red
             exit 1
@@ -967,12 +973,6 @@ if ($args.Count -gt 0) {
         $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
         $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
         $env:ANTHROPIC_AUTH_TOKEN = $cfg.deepseekApiKey
-    } else {
-        if (-not (Test-CommandExists "ollama")) {
-            Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
-            Install-Ollama
-        }
-        if (-not (Start-OllamaServer)) { exit 1 }
     }
 
     Clear-Host
