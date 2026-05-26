@@ -260,6 +260,26 @@ launch_codex_app() {
     read -rp "Session ended. Press Enter" || true
 }
 
+launch_claude_desktop() {
+    require_key || return
+    local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
+
+    export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+    export ANTHROPIC_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
+    export ANTHROPIC_CUSTOM_MODEL_OPTION="$model"
+    export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="DeepSeek ($model)"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="$model"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="$model"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$model"
+    export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
+
+    echo -e "\n${CLR_GREEN}Launching Claude Code Desktop with DeepSeek: $model${CLR_RESET}"
+    open -a Claude 2>/dev/null || open -a "Claude Code" 2>/dev/null || {
+        echo -e "${CLR_RED}Claude Desktop not found. Install from https://claude.ai/download${CLR_RESET}"
+        read -rp "Press Enter" || true
+    }
+}
+
 # --- Status & Menu ---
 show_status() {
     local cCodex="NO"; command -v codex &>/dev/null && cCodex="YES"
@@ -319,6 +339,11 @@ show_main_menu() {
     [[ "$cCodex" == "YES" && "$hasKey" == "1" ]] && echo -e "[5] Launch Codex CLI (via DeepSeek) ${CLR_GREEN}" || echo -e "[5] Launch Codex CLI [not available] ${CLR_GRAY}"
     [[ "$cClaude" == "YES" && "$hasKey" == "1" ]] && echo -e "[6] Launch Claude Code (via DeepSeek) ${CLR_GREEN}" || echo -e "[6] Launch Claude Code [not available] ${CLR_GRAY}"
     [[ "$cCodex" == "YES" && "$hasKey" == "1" ]] && echo -e "[7] Launch Codex App (via DeepSeek) ${CLR_GREEN}" || echo -e "[7] Launch Codex App [not available] ${CLR_GRAY}"
+    if [[ -d /Applications/Claude.app ]] || [[ -d /Applications/Claude\ Code.app ]]; then
+        [[ "$hasKey" == "1" ]] && echo -e "[8] Launch Claude Code Desktop (via DeepSeek) ${CLR_GREEN}" || echo -e "[8] Launch Claude Desktop [API key not set] ${CLR_GRAY}"
+    else
+        echo -e "[8] Launch Claude Desktop [not installed] ${CLR_GRAY}"
+    fi
     echo -e "[C] Clear Version Cache ${CLR_WHITE}"
     local permText
     [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
@@ -334,9 +359,10 @@ if [[ $# -gt 0 ]]; then
     local k; k=$(config_get "deepseekApiKey" "$DEFAULT_KEY")
     [[ -z "$k" ]] && { echo -e "${CLR_RED}DeepSeek API key not set. Run launcher to configure.${CLR_RESET}"; exit 1; }
     case "$(lc "$1")" in
-        codex)     launch_codex_cli; exit $? ;;
-        claude)    launch_claude_code; exit $? ;;
-        codex-app) launch_codex_app; exit $? ;;
+        codex)           launch_codex_cli; exit $? ;;
+        claude)          launch_claude_code; exit $? ;;
+        codex-app)       launch_codex_app; exit $? ;;
+        claude-desktop)  launch_claude_desktop; exit $? ;;
     esac
 fi
 
@@ -373,6 +399,7 @@ while true; do
         5) launch_codex_cli ;;
         6) launch_claude_code ;;
         7) launch_codex_app ;;
+        8) launch_claude_desktop ;;
         c)
             cache_set "codexLastChecked" ""; cache_set "claudeLastChecked" ""
             echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1

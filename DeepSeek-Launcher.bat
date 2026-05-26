@@ -100,6 +100,10 @@ function Test-CommandExists($cmd) {
     $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
 }
 
+function Test-ClaudeDesktopInstalled {
+    $null -ne (Get-StartApps 2>$null | Where-Object { $_.AppID -like "*Claude*" -and $_.AppID -like "*!Claude" })
+}
+
 function Compare-Versions($installed, $latest) {
     if ([string]::IsNullOrWhiteSpace($installed) -or [string]::IsNullOrWhiteSpace($latest)) { return $null }
     try { return ([version]$latest -gt [version]$installed) } catch { return $null }
@@ -368,6 +372,30 @@ function Launch-CodexApp {
     Read-Host "Session ended. Press Enter to return to menu"
 }
 
+function Launch-ClaudeDesktop {
+    if (-not (Require-ApiKey)) { return }
+    $cfg = Get-Config
+
+    $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
+    $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
+    $env:ANTHROPIC_CUSTOM_MODEL_OPTION = $cfg.deepseekModel
+    $env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "DeepSeek ($($cfg.deepseekModel))"
+    $env:ANTHROPIC_DEFAULT_OPUS_MODEL = $cfg.deepseekModel
+    $env:ANTHROPIC_DEFAULT_SONNET_MODEL = $cfg.deepseekModel
+    $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = $cfg.deepseekModel
+    $env:CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = "1"
+
+    Write-Host "`nLaunching Claude Code Desktop with DeepSeek: $($cfg.deepseekModel)" -ForegroundColor Green
+    Write-Host ("-" * 50) -ForegroundColor DarkGray
+    try {
+        Start-Process "shell:appsFolder\Claude_pzs8sxrjxfjjc!Claude"
+    } catch {
+        Write-Host "ERROR: Could not launch Claude Desktop." -ForegroundColor Red
+        Write-Host "Install from: https://claude.ai/download" -ForegroundColor Yellow
+        Read-Host "Press Enter to return to menu"
+    }
+}
+
 # ============================================
 # Status Display
 # ============================================
@@ -407,6 +435,12 @@ function Show-Status {
     }
     $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
     Write-Host "  Skip-perms    : $permText" -ForegroundColor Cyan
+    $cDesktop = Test-ClaudeDesktopInstalled
+    if ($cDesktop) {
+        Write-Host "  Claude Desktop : INSTALLED" -ForegroundColor Green
+    } else {
+        Write-Host "  Claude Desktop : NOT INSTALLED" -ForegroundColor DarkGray
+    }
     Write-Host "==========================================" -ForegroundColor Cyan
 }
 
@@ -450,6 +484,13 @@ function Show-MainMenu {
         $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Codex CLI not installed" }
         Write-Host "[7] Launch Codex App [$reason]" -ForegroundColor DarkGray
     }
+    $cDesktop = Test-ClaudeDesktopInstalled
+    if ($cDesktop -and $cfg.deepseekApiKey) {
+        Write-Host "[8] Launch Claude Code Desktop (via DeepSeek)" -ForegroundColor Green
+    } else {
+        $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Claude Desktop not installed" }
+        Write-Host "[8] Launch Claude Desktop [$reason]" -ForegroundColor DarkGray
+    }
     Write-Host "[C] Clear Version Cache" -ForegroundColor White
     $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
     Write-Host "[T] Toggle Permission Bypass [currently: $permText]" -ForegroundColor White
@@ -466,11 +507,12 @@ if ($args.Count -gt 0) {
     if (-not $cfg.deepseekApiKey) { Write-Host "ERROR: DeepSeek API key not set. Run launcher to configure." -ForegroundColor Red; exit 1 }
 
     switch ($target) {
-        "codex"     { Launch-CodexCLI; exit $LASTEXITCODE }
-        "claude"    { Launch-ClaudeCode; exit $LASTEXITCODE }
-        "codex-app" { Launch-CodexApp; exit $LASTEXITCODE }
+        "codex"           { Launch-CodexCLI; exit $LASTEXITCODE }
+        "claude"          { Launch-ClaudeCode; exit $LASTEXITCODE }
+        "codex-app"       { Launch-CodexApp; exit $LASTEXITCODE }
+        "claude-desktop"  { Launch-ClaudeDesktop; exit $LASTEXITCODE }
         default {
-            Write-Host "Usage: DeepSeek-Launcher.bat [codex|claude|codex-app]"
+            Write-Host "Usage: DeepSeek-Launcher.bat [codex|claude|codex-app|claude-desktop]"
             exit 1
         }
     }
@@ -549,6 +591,15 @@ while ($true) {
             $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""
             Save-VersionCache $cache
             Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
+        }
+        "8" {
+            if (-not $cfg.deepseekApiKey) {
+                Write-Host "API key not set. Use option 4 first." -ForegroundColor Red
+                Read-Host "Press Enter to continue"
+            } elseif (-not (Test-ClaudeDesktopInstalled)) {
+                Write-Host "Claude Desktop not installed. Install from https://claude.ai/download" -ForegroundColor Red
+                Read-Host "Press Enter to continue"
+            } else { Launch-ClaudeDesktop }
         }
         "t" {
             $cfg = Get-Config

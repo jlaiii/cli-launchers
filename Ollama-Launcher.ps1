@@ -92,6 +92,10 @@ function Test-CommandExists($cmd) {
     $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
 }
 
+function Test-ClaudeDesktopInstalled {
+    $null -ne (Get-StartApps 2>$null | Where-Object { $_.AppID -like "*Claude*" -and $_.AppID -like "*!Claude" })
+}
+
 function Compare-Versions($installed, $latest) {
     if ([string]::IsNullOrWhiteSpace($installed) -or [string]::IsNullOrWhiteSpace($latest)) { return $null }
     try {
@@ -485,6 +489,29 @@ function Launch-CodexApp {
     Read-Host "Session ended. Press Enter to return to menu"
 }
 
+function Launch-ClaudeDesktop {
+    $model = (Get-Config).selectedModel
+    if (-not (Start-OllamaServer)) { Read-Host "Press Enter to return"; return }
+
+    $env:ANTHROPIC_BASE_URL = "http://localhost:11434"
+    $env:ANTHROPIC_CUSTOM_MODEL_OPTION = $model
+    $env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "Ollama ($model)"
+    $env:ANTHROPIC_DEFAULT_OPUS_MODEL = $model
+    $env:ANTHROPIC_DEFAULT_SONNET_MODEL = $model
+    $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = $model
+    $env:CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = "1"
+
+    Write-Host "`nLaunching Claude Code Desktop with Ollama: $model" -ForegroundColor Green
+    Write-Host ("-" * 50) -ForegroundColor DarkGray
+    try {
+        Start-Process "shell:appsFolder\Claude_pzs8sxrjxfjjc!Claude"
+    } catch {
+        Write-Host "ERROR: Could not launch Claude Desktop." -ForegroundColor Red
+        Write-Host "Install from: https://claude.ai/download" -ForegroundColor Yellow
+        Read-Host "Press Enter to return to menu"
+    }
+}
+
 function Ensure-CodexInstalled {
     if (Test-CommandExists "codex") { return $true }
     Write-Host "Codex CLI not found." -ForegroundColor Yellow
@@ -558,6 +585,12 @@ function Show-Status {
     Write-Host "  Model         : $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
     $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
     Write-Host "  Skip-perms    : $permText" -ForegroundColor Cyan
+    $cDesktop = Test-ClaudeDesktopInstalled
+    if ($cDesktop) {
+        Write-Host "  Claude Desktop : INSTALLED" -ForegroundColor Green
+    } else {
+        Write-Host "  Claude Desktop : NOT INSTALLED" -ForegroundColor DarkGray
+    }
     Write-Host "===========================================" -ForegroundColor Cyan
 }
 
@@ -603,6 +636,13 @@ function Show-MainMenu {
     }
     Write-Host "[7] Check / Fix Ollama Sign-in" -ForegroundColor White
     Write-Host "[8] Clear Version Cache" -ForegroundColor White
+    $cDesktop = Test-ClaudeDesktopInstalled
+    if ($cDesktop -and $oExists) {
+        Write-Host "[9] Launch Claude Code Desktop (via Ollama)" -ForegroundColor Green
+    } else {
+        $reason = if (-not $oExists) { "Ollama not installed" } else { "Claude Desktop not installed" }
+        Write-Host "[9] Launch Claude Desktop [$reason]" -ForegroundColor DarkGray
+    }
     $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
     Write-Host "[T] Toggle Permission Bypass [currently: $permText]" -ForegroundColor White
     Write-Host "[Q] Quit" -ForegroundColor Magenta
@@ -626,6 +666,10 @@ if ($args.Count -gt 0) {
         if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
         if (-not (Start-OllamaServer)) { exit 1 }
         Launch-CodexApp; exit $LASTEXITCODE
+    } elseif ($target -eq "claude-desktop") {
+        if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
+        if (-not (Start-OllamaServer)) { exit 1 }
+        Launch-ClaudeDesktop; exit $LASTEXITCODE
     }
 }
 
@@ -685,6 +729,15 @@ while ($true) {
             $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""
             Save-VersionCache $cache
             Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
+        }
+        "9" {
+            if (-not (Test-CommandExists "ollama")) {
+                Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
+                Read-Host "Press Enter to continue"
+            } elseif (-not (Test-ClaudeDesktopInstalled)) {
+                Write-Host "Claude Desktop not installed. Install from https://claude.ai/download" -ForegroundColor Red
+                Read-Host "Press Enter to continue"
+            } else { Launch-ClaudeDesktop }
         }
         "t" {
             $cfg = Get-Config

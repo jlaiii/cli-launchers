@@ -33,14 +33,16 @@ curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/DeepSeek-
 
 ```batch
 :: Ollama Launcher
-Ollama-Launcher.bat codex          :: launch Codex CLI
-Ollama-Launcher.bat claude         :: launch Claude Code
-Ollama-Launcher.bat codex-app      :: launch Codex App
+Ollama-Launcher.bat codex            :: launch Codex CLI
+Ollama-Launcher.bat claude           :: launch Claude Code
+Ollama-Launcher.bat codex-app        :: launch Codex App
+Ollama-Launcher.bat claude-desktop   :: launch Claude Code Desktop
 
 :: DeepSeek Launcher
-DeepSeek-Launcher.bat codex        :: launch Codex CLI
-DeepSeek-Launcher.bat claude       :: launch Claude Code
-DeepSeek-Launcher.bat codex-app    :: launch Codex App
+DeepSeek-Launcher.bat codex          :: launch Codex CLI
+DeepSeek-Launcher.bat claude         :: launch Claude Code
+DeepSeek-Launcher.bat codex-app      :: launch Codex App
+DeepSeek-Launcher.bat claude-desktop :: launch Claude Code Desktop
 ```
 
 ---
@@ -69,6 +71,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through Ollama. Brows
 | 6 | Launch Codex App (via Ollama) |
 | 7 | Check / Fix Ollama Sign-in |
 | 8 | Clear Version Cache |
+| 9 | Launch Claude Code Desktop (via Ollama) |
 | T | Toggle Permission Bypass |
 
 **Config:** Model: `kimi-k2.6:cloud` · Source: cloud · Skip-perms: ON
@@ -99,6 +102,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 | 5 | Launch Codex CLI (via DeepSeek) |
 | 6 | Launch Claude Code (via DeepSeek) |
 | 7 | Launch Codex App (via DeepSeek) |
+| 8 | Launch Claude Code Desktop (via DeepSeek) |
 | C | Clear Version Cache |
 | T | Toggle Permission Bypass |
 

@@ -335,6 +335,25 @@ launch_codex_app() {
     read -rp "Session ended. Press Enter" || true
 }
 
+launch_claude_desktop() {
+    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
+    start_ollama_server || { read -rp "Press Enter" || true; return; }
+
+    export ANTHROPIC_BASE_URL="http://localhost:11434"
+    export ANTHROPIC_CUSTOM_MODEL_OPTION="$model"
+    export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Ollama ($model)"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="$model"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="$model"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$model"
+    export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
+
+    echo -e "\n${CLR_GREEN}Launching Claude Code Desktop with Ollama: $model${CLR_RESET}"
+    open -a Claude 2>/dev/null || open -a "Claude Code" 2>/dev/null || {
+        echo -e "${CLR_RED}Claude Desktop not found. Install from https://claude.ai/download${CLR_RESET}"
+        read -rp "Press Enter" || true
+    }
+}
+
 # --- Status & Menu ---
 show_status() {
     local oExists="NO"; command -v ollama &>/dev/null && oExists="YES"
@@ -387,6 +406,11 @@ show_main_menu() {
     echo -e "[6] Launch Codex App (via Ollama) ${CLR_GREEN}"
     echo -e "[7] Check / Fix Ollama Sign-in ${CLR_WHITE}"
     echo -e "[8] Clear Version Cache ${CLR_WHITE}"
+    if [[ -d /Applications/Claude.app ]] || [[ -d /Applications/Claude\ Code.app ]]; then
+        [[ "$oExists" == "YES" ]] && echo -e "[9] Launch Claude Code Desktop (via Ollama) ${CLR_GREEN}" || echo -e "[9] Launch Claude Desktop [Ollama not installed] ${CLR_GRAY}"
+    else
+        echo -e "[9] Launch Claude Desktop [not installed] ${CLR_GRAY}"
+    fi
     local permText
     [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
     echo -e "[T] Toggle Permission Bypass [currently: $permText] ${CLR_WHITE}"
@@ -413,6 +437,11 @@ if [[ $# -gt 0 ]]; then
             command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
             start_ollama_server || exit 1
             launch_codex_app; exit $?
+            ;;
+        claude-desktop)
+            command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
+            start_ollama_server || exit 1
+            launch_claude_desktop; exit $?
             ;;
     esac
 fi
@@ -458,6 +487,10 @@ while true; do
         8)
             cache_set "ollamaLastChecked" ""
             echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1
+            ;;
+        9)
+            command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
+            launch_claude_desktop
             ;;
         t)
             local sp; sp=$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")
