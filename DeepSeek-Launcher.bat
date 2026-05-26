@@ -347,11 +347,17 @@ function Launch-CodexApp {
     $codexHome = Join-Path $env:USERPROFILE ".codex"
     if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
 
-    # Back up existing config, write a clean DeepSeek config
+    # Back up existing config + auth, write a clean DeepSeek config
     $configFile = Join-Path $codexHome "config.toml"
     $backupFile = Join-Path $codexHome "config.toml.cli-launcher-backup"
-    $hadExisting = Test-Path $configFile
-    if ($hadExisting) { Copy-Item $configFile $backupFile -Force }
+    $hadConfig = Test-Path $configFile
+    if ($hadConfig) { Copy-Item $configFile $backupFile -Force }
+
+    # Temporarily remove auth.json so it doesn't override our provider
+    $authFile = Join-Path $codexHome "auth.json"
+    $authBackup = Join-Path $codexHome "auth.json.cli-launcher-backup"
+    $hadAuth = Test-Path $authFile
+    if ($hadAuth) { Move-Item $authFile $authBackup -Force }
 
     $toml = @"
 model = "$($cfg.deepseekModel)"
@@ -378,9 +384,10 @@ env_key = "DEEPSEEK_API_KEY"
         if ($LASTEXITCODE -ne 0) { Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow }
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
 
-    # Restore original config
-    if ($hadExisting) { Copy-Item $backupFile $configFile -Force; Remove-Item $backupFile -Force }
+    # Restore original config + auth
+    if ($hadConfig) { Copy-Item $backupFile $configFile -Force; Remove-Item $backupFile -Force }
     else { Remove-Item $configFile -Force -ErrorAction SilentlyContinue }
+    if ($hadAuth) { Move-Item $authBackup $authFile -Force }
     Read-Host "Session ended. Press Enter to return to menu"
 }
 
