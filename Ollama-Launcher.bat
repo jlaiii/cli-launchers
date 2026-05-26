@@ -708,8 +708,9 @@ function Clear-ClaudeDesktopSession {
     } else {
         try { $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { $cfg = New-Object PSObject }
     }
-    if (-not ($cfg.PSObject.Properties.Name -contains "permissionMode")) {
-        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypass" -Force
+    if (-not ($cfg.PSObject.Properties.Name -contains "allowBypassPermissionsMode")) {
+        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypassPermissions" -Force
+        $cfg | Add-Member -NotePropertyName "allowBypassPermissionsMode" -NotePropertyValue $true -Force
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllText($cfgPath, ($cfg | ConvertTo-Json -Depth 3), $utf8NoBom)
         Write-Host "  Set permission mode to bypass" -ForegroundColor DarkGray

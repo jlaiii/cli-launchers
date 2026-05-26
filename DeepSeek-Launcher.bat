@@ -593,8 +593,9 @@ function Clear-ClaudeDesktopSession {
     } else {
         try { $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { $cfg = New-Object PSObject }
     }
-    if (-not ($cfg.PSObject.Properties.Name -contains "permissionMode")) {
-        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypass" -Force
+    if (-not ($cfg.PSObject.Properties.Name -contains "allowBypassPermissionsMode")) {
+        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypassPermissions" -Force
+        $cfg | Add-Member -NotePropertyName "allowBypassPermissionsMode" -NotePropertyValue $true -Force
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllText($cfgPath, ($cfg | ConvertTo-Json -Depth 3), $utf8NoBom)
         Write-Host "  Set permission mode to bypass" -ForegroundColor DarkGray
@@ -644,12 +645,17 @@ function Launch-ClaudeDesktop {
     Write-Host "============================================================" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  If the app asks you to sign in:" -ForegroundColor Cyan
-    Write-Host "    -> Look for 'Continue with Gateway' on the sign-in screen" -ForegroundColor White
+    Write-Host "    -> Click 'Continue with Gateway' on the sign-in screen" -ForegroundColor White
     Write-Host ""
     Write-Host "  If you don't see the Gateway option:" -ForegroundColor Cyan
-    Write-Host "    1. In Claude Desktop, go to:" -ForegroundColor White
-    Write-Host "       Help -> Troubleshooting -> Enable Developer Mode" -ForegroundColor White
-    Write-Host "    2. Restart the launcher option" -ForegroundColor White
+    Write-Host "    Help -> Troubleshooting -> Enable Developer Mode" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  To enable Bypass Permissions (auto-approve all tools):" -ForegroundColor Cyan
+    Write-Host "    1. Click your avatar (bottom-left) -> Settings" -ForegroundColor White
+    Write-Host "    2. Select 'Claude Code' in the sidebar" -ForegroundColor White
+    Write-Host "    3. Turn ON 'Allow bypass permissions mode'" -ForegroundColor White
+    Write-Host "    4. Start a NEW chat, then select Bypass from" -ForegroundColor White
+    Write-Host "       the permission mode dropdown next to the chat input" -ForegroundColor White
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Yellow
     Write-Host ""
