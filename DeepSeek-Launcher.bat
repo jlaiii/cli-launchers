@@ -382,8 +382,28 @@ function Write-ClaudeDesktop3pConfig {
         default               { "claude-sonnet-4-6" }
     }
 
-    $modelList = [string[]]@($claudeModel, "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001")
-    $allModels = @($modelList | Sort-Object -Unique)
+    # Build model list with labelOverride so Claude Desktop's model picker
+    # shows the actual DeepSeek model each Claude name maps to:
+    #   Opus 4.7 / 4.6 → DeepSeek V4 Pro
+    #   Sonnet 4.6 / Haiku 4.5 → DeepSeek V4 Flash
+    $modelDefs = @(
+        @{ name = "claude-opus-4-7";          label = "DeepSeek V4 Pro (Opus 4.7)" }
+        @{ name = "claude-opus-4-6";          label = "DeepSeek V4 Pro (Opus 4.6)" }
+        @{ name = "claude-sonnet-4-6";        label = "DeepSeek V4 Flash (Sonnet 4.6)" }
+        @{ name = "claude-haiku-4-5-20251001"; label = "DeepSeek V4 Flash (Haiku 4.5)" }
+    )
+    # Ensure the user's preferred model is first (default in the picker)
+    $orderedNames = @($claudeModel) + ($modelDefs | ForEach-Object { $_.name } | Where-Object { $_ -ne $claudeModel })
+    $seen = @{}
+    $allModels = @($orderedNames | Where-Object { -not $seen.ContainsKey($_) ; $seen[$_] = $true } | ForEach-Object {
+        $name = $_
+        $def = $modelDefs | Where-Object { $_.name -eq $name } | Select-Object -First 1
+        if ($def) {
+            @{ name = $def.name; labelOverride = $def.label }
+        } else {
+            @{ name = $name }
+        }
+    })
 
     $gatewayConfig = [ordered]@{
         inferenceProvider          = "gateway"

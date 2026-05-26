@@ -302,8 +302,24 @@ except: pass" 2>/dev/null
 import json, os
 lib = '$lib_dir'
 cid = '$config_id'
-models = ['$claude_model', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
-models = list(dict.fromkeys(models))
+model_defs = [
+    {'name': 'claude-opus-4-7',          'label': 'DeepSeek V4 Pro (Opus 4.7)'},
+    {'name': 'claude-opus-4-6',          'label': 'DeepSeek V4 Pro (Opus 4.6)'},
+    {'name': 'claude-sonnet-4-6',        'label': 'DeepSeek V4 Flash (Sonnet 4.6)'},
+    {'name': 'claude-haiku-4-5-20251001', 'label': 'DeepSeek V4 Flash (Haiku 4.5)'},
+]
+# Order so the user's preferred model is first (default in the picker)
+ordered_names = ['$claude_model'] + [d['name'] for d in model_defs if d['name'] != '$claude_model']
+seen = set()
+models = []
+for name in ordered_names:
+    if name in seen: continue
+    seen.add(name)
+    match = next((d for d in model_defs if d['name'] == name), None)
+    if match:
+        models.append({'name': match['name'], 'labelOverride': match['label']})
+    else:
+        models.append({'name': name})
 
 meta = {'appliedId': cid, 'entries': [{'id': cid, 'name': 'DeepSeek Gateway'}]}
 with open(os.path.join(lib, '_meta.json'), 'w') as f:

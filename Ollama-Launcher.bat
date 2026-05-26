@@ -518,7 +518,11 @@ function Write-ClaudeDesktopOllamaConfig {
         inferenceGatewayBaseUrl    = “http://127.0.0.1:11434”
         inferenceGatewayApiKey     = “ollama”
         inferenceGatewayAuthScheme = “bearer”
-        inferenceModels            = @(“claude-sonnet-4-6”, “claude-opus-4-7”, “claude-haiku-4-5-20251001”)
+        inferenceModels            = @(
+            @{ name = “claude-opus-4-7”;          labelOverride = “Ollama (Opus 4.7)” }
+            @{ name = “claude-sonnet-4-6”;        labelOverride = “Ollama (Sonnet 4.6)” }
+            @{ name = “claude-haiku-4-5-20251001”; labelOverride = “Ollama (Haiku 4.5)” }
+        )
         disableEssentialTelemetry    = $true
         disableNonessentialTelemetry = $true
         disableNonessentialServices  = $true
