@@ -334,7 +334,15 @@ config = {
     'disableEssentialTelemetry': True,
     'disableNonessentialTelemetry': True,
     'disableNonessentialServices': True,
-    'unstableDisableModelVerification': True
+    'unstableDisableModelVerification': True,
+    'builtinToolPolicy': {
+        'Bash': 'allow', 'Read': 'allow', 'Write': 'allow', 'Edit': 'allow',
+        'Glob': 'allow', 'Grep': 'allow', 'NotebookEdit': 'allow',
+        'WebFetch': 'allow', 'WebSearch': 'allow',
+        'Task': 'allow', 'TaskCreate': 'allow', 'TaskUpdate': 'allow',
+        'TaskGet': 'allow', 'TaskList': 'allow', 'TaskStop': 'allow',
+        'Skill': 'allow', 'AskUserQuestion': 'allow', 'SendUserMessage': 'allow'
+    }
 }
 with open(os.path.join(lib, cid + '.json'), 'w') as f:
     json.dump(config, f, indent=2)

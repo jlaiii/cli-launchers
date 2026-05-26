@@ -518,6 +518,26 @@ function Write-ClaudeDesktopOllamaConfig {
         disableNonessentialTelemetry = $true
         disableNonessentialServices  = $true
         unstableDisableModelVerification = $true
+        builtinToolPolicy = [ordered]@{
+            Bash              = "allow"
+            Read              = "allow"
+            Write             = "allow"
+            Edit              = "allow"
+            Glob              = "allow"
+            Grep              = "allow"
+            NotebookEdit      = "allow"
+            WebFetch          = "allow"
+            WebSearch         = "allow"
+            Task              = "allow"
+            TaskCreate        = "allow"
+            TaskUpdate        = "allow"
+            TaskGet           = "allow"
+            TaskList          = "allow"
+            TaskStop          = "allow"
+            Skill             = "allow"
+            AskUserQuestion   = "allow"
+            SendUserMessage   = "allow"
+        }
     }
 
     $roaming = [Environment]::GetFolderPath("ApplicationData")
