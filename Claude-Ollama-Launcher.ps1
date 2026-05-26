@@ -727,7 +727,6 @@ function Launch-ClaudeOllama {
         Clear-Host
         $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
         $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
-        $env:ANTHROPIC_AUTH_TOKEN = $cfg.deepseekApiKey
 
         $cmdParts = @("claude")
         if ($cfg.skipPermissions) {
@@ -963,7 +962,6 @@ if ($args.Count -gt 0) {
         }
         $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
         $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
-        $env:ANTHROPIC_AUTH_TOKEN = $cfg.deepseekApiKey
     }
 
     Clear-Host
