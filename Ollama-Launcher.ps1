@@ -18,7 +18,7 @@ Clear-Host
 # ============================================
 # Paths & Config
 # ============================================
-$script:BaseDir      = if ($env:BatDir) { $env:BatDir } elseif ($PSScriptRoot) { $PSScriptRoot } else { Join-Path $env:USERPROFILE ".cli-launchers" }
+$script:BaseDir      = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "cli-launchers"
 if (-not (Test-Path $script:BaseDir)) { New-Item -ItemType Directory -Force -Path $script:BaseDir | Out-Null }
 $script:ConfigPath   = Join-Path $script:BaseDir "Ollama-Launcher.config.json"
 $script:VersionCache = Join-Path $script:BaseDir "Ollama-Launcher.versions.json"

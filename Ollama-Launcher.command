@@ -19,12 +19,8 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # Resolve script/config directory
-if [[ "$0" == "bash" || "$0" == "-bash" || "$0" == "sh" || "$0" == "-sh" || "$0" == "" ]]; then
-    SCRIPT_DIR="$HOME/.cli-launchers"
-    mkdir -p "$SCRIPT_DIR"
-else
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-fi
+SCRIPT_DIR="$HOME/Documents/cli-launchers"
+mkdir -p "$SCRIPT_DIR"
 
 CONFIG_FILE="$SCRIPT_DIR/Ollama-Launcher.config.json"
 VERSION_CACHE="$SCRIPT_DIR/Ollama-Launcher.versions.json"

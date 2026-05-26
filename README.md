@@ -124,7 +124,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 
 ## Notes
 
-- Launchers auto-create `*.config.json` and `*.versions.json` files in a `.cli-launchers` folder to remember your settings.
+- Launchers auto-create `*.config.json` and `*.versions.json` files in your Documents folder (`Documents\cli-launchers`) to remember your settings.
 - If npm/ollama installs fail on Windows, try running the launcher as Administrator.
 - On macOS, `.command` files downloaded from the web may require right-click > Open the first time (Gatekeeper).
 - The `.bat` files are self-extracting — they embed a full PowerShell script and clean up the temp file when done.
