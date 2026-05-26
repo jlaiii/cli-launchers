@@ -49,7 +49,7 @@ DeepSeek-Launcher.bat claude-desktop :: launch Claude Desktop
 
 ## Ollama Launcher
 
-Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Desktop** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
+Launches **Codex CLI**, **Claude Code CLI**, **Codex App**, and **Claude Desktop** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
 
 **What it handles:**
 - Detects and auto-installs Ollama
@@ -81,17 +81,17 @@ Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Deskto
 
 ## DeepSeek Launcher
 
-Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Desktop** through the DeepSeek API. Bring your own API key, pick a model, and launch any tool.
+Launches **Codex CLI**, **Claude Code CLI**, **Codex App**, and **Claude Desktop** through the DeepSeek API. Bring your own API key, pick a model, and launch any tool.
 
 **What it handles:**
 - Detects and auto-installs Node.js / npm and Codex CLI (via `npm install -g @openai/codex`)
 - Detects and auto-installs Claude Code (via official installer)
-- Checks for updates against npm (Codex, Claude Code)
+- Checks for updates against npm (Codex, Claude Code CLI)
 - DeepSeek model picker — V4 Pro (`deepseek-v4-pro`), V4 Flash (`deepseek-v4-flash`), or manual entry
 - API key setup and persistence
 - Codex CLI: sets `OPENAI_API_KEY` + `OPENAI_BASE_URL` for direct DeepSeek access
 - Codex App: uses `-c` CLI overrides (`model_provider=deepseek`, `wire_api=chat`) — no file changes needed
-- Claude Code: sets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` for Anthropic-compatible endpoint
+- Claude Code CLI: sets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` for Anthropic-compatible endpoint
 - Claude Code Desktop: writes 3p config (`configLibrary` + `claude_desktop_config.json`) for gateway mode, auto-enables developer mode, clears OAuth session so you get "Continue with Gateway" at launch
 
 **Menu:**
