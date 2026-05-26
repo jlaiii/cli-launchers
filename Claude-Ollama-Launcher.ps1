@@ -365,6 +365,7 @@ function Show-ProviderMenu {
                     $key = Read-Host "Enter your DeepSeek API key (starts with 'sk-')"
                     if ($key) {
                         $cfg.deepseekApiKey = $key.Trim()
+                        Write-Host "API key saved." -ForegroundColor Green
                     } else {
                         Write-Host "No key entered. You can set it later from the model picker." -ForegroundColor Yellow
                         Start-Sleep -Seconds 2
@@ -372,6 +373,9 @@ function Show-ProviderMenu {
                 }
                 Save-Config $cfg
                 Write-Host "Provider set to: DeepSeek" -ForegroundColor Green
+                Write-Host "Model: $($cfg.deepseekModel)" -ForegroundColor Cyan
+                $change = Read-Host "Change DeepSeek model? (y/n)"
+                if ($change -eq 'y') { Show-DeepSeekModelPicker }
                 Read-Host "Press Enter to continue"
                 return
             }
@@ -822,6 +826,9 @@ function Show-Status {
     $oExists = $false
     $authOk  = $false
 
+    Write-Host "`n========== Claude Code Launcher ==========" -ForegroundColor Cyan
+    Write-Host "  Checking versions..." -ForegroundColor DarkGray
+
     if ($cExists) {
         $claudeInstalledVer = Get-ClaudeInstalledVersion
         $claudeLatestVer = Get-ClaudeLatestVersion
@@ -840,6 +847,9 @@ function Show-Status {
             }
         }
     }
+
+    # Clear the checking line and redraw header
+    Clear-Host
 
     Write-Host "`n========== Claude Code + Ollama Launcher ==========" -ForegroundColor Cyan
     if ($cExists) {
@@ -900,15 +910,19 @@ function Show-MainMenu {
         $lat  = Get-ClaudeLatestVersion
         if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
     }
-    Write-Host "[2] Install / Update Ollama" -ForegroundColor White
-    if ($oExists) {
-        $inst = Get-OllamaInstalledVersion
-        $lat  = Get-OllamaLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
+    if ($cfg.provider -eq "ollama") {
+        Write-Host "[2] Install / Update Ollama" -ForegroundColor White
+        if ($oExists) {
+            $inst = Get-OllamaInstalledVersion
+            $lat  = Get-OllamaLatestVersion
+            if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
+        }
+    } else {
+        Write-Host "[2] Install / Update Ollama [not needed for DeepSeek]" -ForegroundColor DarkGray
     }
     Write-Host "[3] Pick / Change Model  [current: $(if ($cfg.provider -eq "deepseek") { $cfg.deepseekModel } else { $cfg.selectedModel })]" -ForegroundColor White
     if ($cfg.source -eq "cloud" -and $oExists -and $cfg.provider -eq "ollama") {
-        Write-Host "[4] Pull Selected Model Locally (ollama pull)" -ForegroundColor White
+        Write-Host "[4] Pull Selected Model Locally" -ForegroundColor White
     } else {
         Write-Host "[4] Pull Selected Model Locally [not applicable]" -ForegroundColor DarkGray
     }
@@ -919,10 +933,11 @@ function Show-MainMenu {
     }
     Write-Host "[7] Clear Version Cache" -ForegroundColor White
     Write-Host "[8] Switch Provider [current: $($cfg.provider)]" -ForegroundColor White
-    $cmdLabel = if ($cfg.customCommand) { "[custom: $($cfg.customCommand)]" } else { "[default: claude]" }
-    Write-Host "[C] Set Custom Launch Command $cmdLabel" -ForegroundColor White
-    $toggleLabel = if ($cfg.skipPermissions) { "ON -> switch to normal mode" } else { "OFF -> switch to skip-perms mode" }
-    Write-Host "[T] Toggle Permission Bypass: $toggleLabel" -ForegroundColor White
+    if ($cfg.customCommand) {
+        Write-Host "[C] Custom Launch Cmd: $($cfg.customCommand)" -ForegroundColor DarkGray
+    }
+    $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
+    Write-Host "[T] Toggle Permission Bypass  [currently: $permText]" -ForegroundColor White
     Write-Host "[Q] Quit" -ForegroundColor Magenta
     Write-Host ""
 }
@@ -1063,7 +1078,12 @@ while ($true) {
             }
         }
         "6" {
-            Check-OllamaSignin
+            if ((Get-Config).provider -eq "ollama") {
+                Check-OllamaSignin
+            } else {
+                Write-Host "Ollama sign-in is only relevant when using Ollama provider." -ForegroundColor Yellow
+                Start-Sleep -Seconds 1
+            }
         }
         "7" {
             $cache = Get-VersionCache

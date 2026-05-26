@@ -486,7 +486,30 @@ function show_provider_menu() {
     ask "Select provider: " choice
     case "$(lc "$choice")" in
         1) config_set "provider" "ollama"; echo -e "${CLR_GREEN}Provider set to Ollama.${CLR_RESET}"; sleep 1 ;;
-        2) config_set "provider" "deepseek"; echo -e "${CLR_GREEN}Provider set to DeepSeek.${CLR_RESET}"; sleep 1 ;;
+        2)
+            config_set "provider" "deepseek"
+            local dsKey dsModel
+            dsKey=$(config_get "deepseekApiKey" "$DEFAULT_DEEPSEEK_KEY")
+            dsModel=$(config_get "deepseekModel" "$DEFAULT_DEEPSEEK_MODEL")
+            if [[ -z "$dsKey" ]]; then
+                echo -e "${CLR_YELLOW}DeepSeek API key required.${CLR_RESET}"
+                echo -e "${CLR_CYAN}Get your key at: https://platform.deepseek.com/api_keys${CLR_RESET}"
+                ask "Enter your DeepSeek API key (starts with 'sk-'): " newKey
+                if [[ -n "$newKey" ]]; then
+                    config_set "deepseekApiKey" "$newKey"
+                    echo -e "${CLR_GREEN}API key saved.${CLR_RESET}"
+                else
+                    echo -e "${CLR_YELLOW}No key entered. You can set it later from the model picker.${CLR_RESET}"
+                    sleep 2
+                fi
+            fi
+            echo -e "${CLR_GREEN}Provider set to DeepSeek.${CLR_RESET}"
+            echo -e "${CLR_CYAN}Model: $dsModel${CLR_RESET}"
+            ask "Change DeepSeek model? (y/n) " changeModel
+            if [[ "$(lc "$changeModel")" == "y" ]]; then show_deepseek_model_picker; fi
+            read -rp "Press Enter to continue" || true
+            return
+            ;;
         b) return ;;
         *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
     esac
@@ -704,6 +727,8 @@ function show_status() {
     local isOllama=0
     [[ "$(lc "$provider")" != "deepseek" ]] && isOllama=1
 
+    echo -e "${CLR_GRAY}  Checking versions...${CLR_RESET}"
+
     local cUpdate="" oUpdate=""
     if [[ "$cExists" == "YES" ]]; then
         local cInst cLat
@@ -800,30 +825,38 @@ function show_main_menu() {
 
     echo -e "\n[1] Install / Update Claude Code ${CLR_WHITE}"
     [[ -n "$cUpdate" ]] && echo -e "${CLR_YELLOW}$cUpdate${CLR_RESET}"
-    echo -e "[2] Install / Update Ollama ${CLR_WHITE}"
-    [[ -n "$oUpdate" ]] && echo -e "${CLR_YELLOW}$oUpdate${CLR_RESET}"
-    echo -e "[3] Pick / Change Model  [current: $model] ${CLR_WHITE}"
     local source provider
     source=$(config_get "source" "$DEFAULT_SOURCE")
     provider=$(config_get "provider" "$DEFAULT_PROVIDER")
+    if [[ "$(lc "$provider")" == "ollama" ]]; then
+        echo -e "[2] Install / Update Ollama ${CLR_WHITE}"
+        [[ -n "$oUpdate" ]] && echo -e "${CLR_YELLOW}$oUpdate${CLR_RESET}"
+    else
+        echo -e "[2] Install / Update Ollama [not needed for DeepSeek] ${CLR_GRAY}"
+    fi
+    echo -e "[3] Pick / Change Model  [current: $model] ${CLR_WHITE}"
     if [[ "$source" == "cloud" && "$oExists" == "YES" && "$(lc "$provider")" != "deepseek" ]]; then
-        echo -e "[4] Pull Selected Model Locally (ollama pull) ${CLR_WHITE}"
+        echo -e "[4] Pull Selected Model Locally ${CLR_WHITE}"
     else
         echo -e "[4] Pull Selected Model Locally [not applicable] ${CLR_GRAY}"
     fi
     echo -e "[5] Launch Claude Code ${CLR_GREEN}"
-    echo -e "[6] Check / Fix Ollama Sign-in ${CLR_WHITE}"
+    if [[ "$(lc "$provider")" == "ollama" ]]; then
+        echo -e "[6] Check / Fix Ollama Sign-in ${CLR_WHITE}"
+    fi
     echo -e "[7] Clear Version Cache ${CLR_WHITE}"
     local cmdLabel
     cmdLabel=$(config_get "customCommand" "")
-    echo -e "[C] Set Custom Launch Command $( [[ -n "$cmdLabel" ]] && echo "[custom: $cmdLabel]" || echo "[default: claude]" ) ${CLR_WHITE}"
+    if [[ -n "$cmdLabel" ]]; then
+        echo -e "[C] Custom Launch Cmd: $cmdLabel ${CLR_GRAY}"
+    fi
     local toggleLabel
     if [[ "$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")" == "True" ]]; then
-        toggleLabel="ON -> switch to normal mode"
+        toggleLabel="ON"
     else
-        toggleLabel="OFF -> switch to skip-perms mode"
+        toggleLabel="OFF"
     fi
-    echo -e "[T] Toggle Permission Bypass: $toggleLabel ${CLR_WHITE}"
+    echo -e "[T] Toggle Permission Bypass  [currently: $toggleLabel] ${CLR_WHITE}"
     echo -e "[Q] Quit ${CLR_MAGENTA}"
     echo ""
 }
@@ -920,7 +953,14 @@ while true; do
             fi
             ;;
         6)
-            check_ollama_signin
+            local prov6
+            prov6=$(config_get "provider" "$DEFAULT_PROVIDER")
+            if [[ "$(lc "$prov6")" == "ollama" ]]; then
+                check_ollama_signin
+            else
+                echo -e "${CLR_YELLOW}Ollama sign-in is only relevant when using Ollama provider.${CLR_RESET}"
+                sleep 1
+            fi
             ;;
         7)
             cache_set "claudeLastChecked" ""
