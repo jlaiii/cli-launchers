@@ -434,7 +434,7 @@ show_main_menu() {
     echo -e "[3] Pick DeepSeek Model [current: $(config_get 'deepseekModel' "$DEFAULT_MODEL")] ${CLR_WHITE}"
     echo -e "[4] Set DeepSeek API Key ${CLR_WHITE}"
     [[ "$cCodex" == "YES" && "$hasKey" == "1" ]] && echo -e "[5] Launch Codex CLI (via DeepSeek) ${CLR_GREEN}" || echo -e "[5] Launch Codex CLI [not available] ${CLR_GRAY}"
-    [[ "$cClaude" == "YES" && "$hasKey" == "1" ]] && echo -e "[6] Launch Claude Code (via DeepSeek) ${CLR_GREEN}" || echo -e "[6] Launch Claude Code [not available] ${CLR_GRAY}"
+    [[ "$cClaude" == "YES" && "$hasKey" == "1" ]] && echo -e "[6] Launch Claude Code CLI (via DeepSeek) ${CLR_GREEN}" || echo -e "[6] Launch Claude Code CLI [not available] ${CLR_GRAY}"
     [[ "$cCodex" == "YES" && "$hasKey" == "1" ]] && echo -e "[7] Launch Codex App (via DeepSeek) ${CLR_GREEN}" || echo -e "[7] Launch Codex App [not available] ${CLR_GRAY}"
     if [[ -d /Applications/Claude.app ]] || [[ -d /Applications/Claude\ Code.app ]]; then
         [[ "$hasKey" == "1" ]] && echo -e "[8] Launch Claude Code Desktop (via DeepSeek) ${CLR_GREEN}" || echo -e "[8] Launch Claude Desktop [API key not set] ${CLR_GRAY}"

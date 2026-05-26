@@ -805,10 +805,10 @@ function Show-MainMenu {
         Write-Host "[4] Launch Codex CLI [$reason]" -ForegroundColor DarkGray
     }
     if ($cClaude -and $oExists) {
-        Write-Host "[5] Launch Claude Code (via Ollama)" -ForegroundColor Green
+        Write-Host "[5] Launch Claude Code CLI (via Ollama)" -ForegroundColor Green
     } else {
         $reason = if (-not $oExists) { "Ollama not installed" } else { "Claude Code not installed" }
-        Write-Host "[5] Launch Claude Code [$reason]" -ForegroundColor DarkGray
+        Write-Host "[5] Launch Claude Code CLI [$reason]" -ForegroundColor DarkGray
     }
     if ($cCodex -and $oExists) {
         Write-Host "[6] Launch Codex App (via Ollama)" -ForegroundColor Green

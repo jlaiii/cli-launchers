@@ -34,15 +34,15 @@ curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/DeepSeek-
 ```batch
 :: Ollama Launcher
 Ollama-Launcher.bat codex            :: launch Codex CLI
-Ollama-Launcher.bat claude           :: launch Claude Code
+Ollama-Launcher.bat claude           :: launch Claude Code CLI
 Ollama-Launcher.bat codex-app        :: launch Codex App
-Ollama-Launcher.bat claude-desktop   :: launch Claude Code Desktop
+Ollama-Launcher.bat claude-desktop   :: launch Claude Desktop
 
 :: DeepSeek Launcher
 DeepSeek-Launcher.bat codex          :: launch Codex CLI
-DeepSeek-Launcher.bat claude         :: launch Claude Code
+DeepSeek-Launcher.bat claude         :: launch Claude Code CLI
 DeepSeek-Launcher.bat codex-app      :: launch Codex App
-DeepSeek-Launcher.bat claude-desktop :: launch Claude Code Desktop
+DeepSeek-Launcher.bat claude-desktop :: launch Claude Desktop
 ```
 
 ---
@@ -68,7 +68,7 @@ Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Deskto
 | 2 | Pick / Change Model (cloud / local / manual) |
 | 3 | Pull Selected Model Locally |
 | 4 | Launch Codex CLI (via Ollama) |
-| 5 | Launch Claude Code (via Ollama) |
+| 5 | Launch Claude Code CLI (via Ollama) |
 | 6 | Launch Codex App (via Ollama) |
 | 7 | Check / Fix Ollama Sign-in |
 | 8 | Clear Version Cache |
@@ -102,7 +102,7 @@ Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Deskto
 | 3 | Pick DeepSeek Model (V4 Pro / Flash / manual) |
 | 4 | Set DeepSeek API Key |
 | 5 | Launch Codex CLI (via DeepSeek) |
-| 6 | Launch Claude Code (via DeepSeek) |
+| 6 | Launch Claude Code CLI (via DeepSeek) |
 | 7 | Launch Codex App (via DeepSeek) |
 | 8 | Launch Claude Code Desktop (via DeepSeek) |
 | C | Clear Version Cache |

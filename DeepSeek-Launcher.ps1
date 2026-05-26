@@ -693,10 +693,10 @@ function Show-MainMenu {
         Write-Host "[5] Launch Codex CLI [$reason]" -ForegroundColor DarkGray
     }
     if ($cClaude -and $cfg.deepseekApiKey) {
-        Write-Host "[6] Launch Claude Code (via DeepSeek)" -ForegroundColor Green
+        Write-Host "[6] Launch Claude Code CLI (via DeepSeek)" -ForegroundColor Green
     } else {
         $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Claude Code not installed" }
-        Write-Host "[6] Launch Claude Code [$reason]" -ForegroundColor DarkGray
+        Write-Host "[6] Launch Claude Code CLI [$reason]" -ForegroundColor DarkGray
     }
     if ($cCodex -and $cfg.deepseekApiKey) {
         Write-Host "[7] Launch Codex App (via DeepSeek)" -ForegroundColor Green

@@ -477,7 +477,7 @@ show_main_menu() {
         echo -e "[3] Pull Selected Model Locally [not applicable] ${CLR_GRAY}"
     fi
     echo -e "[4] Launch Codex CLI (via Ollama) ${CLR_GREEN}"
-    echo -e "[5] Launch Claude Code (via Ollama) ${CLR_GREEN}"
+    echo -e "[5] Launch Claude Code CLI (via Ollama) ${CLR_GREEN}"
     echo -e "[6] Launch Codex App (via Ollama) ${CLR_GREEN}"
     echo -e "[7] Check / Fix Ollama Sign-in ${CLR_WHITE}"
     echo -e "[8] Clear Version Cache ${CLR_WHITE}"
