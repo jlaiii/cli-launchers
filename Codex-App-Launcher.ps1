@@ -746,15 +746,9 @@ function Launch-CodexApp([string[]]$passArgs) {
         $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
         Write-Host "Using model: $($cfg.deepseekModel)" -ForegroundColor Cyan
 
-        $cmdParts = @("codex", "--model", $cfg.deepseekModel)
+        $cmdParts = @("codex", "app", "-c", "model=`"$($cfg.deepseekModel)`"")
         if ($passArgs -and $passArgs.Count -gt 0) {
-            $skipNext = $false
-            foreach ($a in $passArgs) {
-                if ($skipNext) { $cmdParts += $a; $skipNext = $false; continue }
-                if ($a -eq "--model") { $cmdParts += "--model"; $skipNext = $true; continue }
-                if ($a.StartsWith("--model=")) { $modelVal = $a.Substring(8); $cmdParts += "--model"; $cmdParts += $modelVal; continue }
-                $cmdParts += $a
-            }
+            $cmdParts += $passArgs
         }
         if ($cfg.customArgs) {
             $cmdParts += ($cfg.customArgs -split ' ')
@@ -963,16 +957,8 @@ if ($args.Count -gt 0) {
         $env:OPENAI_API_KEY = $cfg.deepseekApiKey
         $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
         Clear-Host
-        $cmdParts = @("codex")
-        $hasModel = $false
-        $skipNext = $false
-        foreach ($a in $launchArgs) {
-            if ($skipNext) { $cmdParts += $a; $skipNext = $false; continue }
-            if ($a -eq "--model") { $hasModel = $true; $cmdParts += "--model"; $skipNext = $true; continue }
-            if ($a.StartsWith("--model=")) { $hasModel = $true; $modelVal = $a.Substring(8); $cmdParts += "--model"; $cmdParts += $modelVal; continue }
-            $cmdParts += $a
-        }
-        if (-not $hasModel) { $cmdParts += "--model"; $cmdParts += $cfg.deepseekModel }
+        $cmdParts = @("codex", "app", "-c", "model=`"$($cfg.deepseekModel)`"")
+        if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
         if ($cfg.customArgs) { $cmdParts += ($cfg.customArgs -split ' ') }
         $cmdString = $cmdParts -join ' '
         Write-Host ">>> $cmdString (DeepSeek API)" -ForegroundColor Green
