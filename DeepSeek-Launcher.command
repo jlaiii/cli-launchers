@@ -30,7 +30,7 @@ CONFIG_FILE="$SCRIPT_DIR/DeepSeek-Launcher.config.json"
 VERSION_CACHE="$SCRIPT_DIR/DeepSeek-Launcher.versions.json"
 CACHE_TTL_MINUTES=60
 
-DEFAULT_MODEL="deepseek-chat"
+DEFAULT_MODEL="deepseek-v4-pro"
 DEFAULT_KEY=""
 DEFAULT_SKIPPERMS="true"
 
@@ -193,17 +193,17 @@ show_model_picker() {
         echo ""
         echo -e "Current: ${CLR_CYAN}$(config_get 'deepseekModel' "$DEFAULT_MODEL")${CLR_RESET}"
         echo ""
-        echo -e "  [1] DeepSeek V4 (Recommended)  deepseek-chat"
-        echo -e "  [2] DeepSeek R1 (Reasoning)    deepseek-reasoner"
+        echo -e "  [1] DeepSeek V4 Pro (Recommended)  deepseek-v4-pro"
+        echo -e "  [2] DeepSeek V4 Flash               deepseek-v4-flash"
         echo -e "  [M] Manual entry"
         echo -e "  [K] Set API Key"
         echo -e "  [B] Back"
         echo ""
         ask "Enter choice: " choice
         case "$(lc "$choice")" in
-            1) config_set "deepseekModel" "deepseek-chat"; echo -e "${CLR_GREEN}Model: deepseek-chat${CLR_RESET}"; sleep 1 ;;
-            2) config_set "deepseekModel" "deepseek-reasoner"; echo -e "${CLR_GREEN}Model: deepseek-reasoner${CLR_RESET}"; sleep 1 ;;
-            m) ask "Enter model ID: " m; [[ -n "$m" ]] && { config_set "deepseekModel" "$m"; echo -e "${CLR_GREEN}Model: $m${CLR_RESET}"; read -rp "Press Enter" || true; } ;;
+            1) config_set "deepseekModel" "deepseek-v4-pro"; echo -e "${CLR_GREEN}Selected: deepseek-v4-pro (V4 Pro)${CLR_RESET}"; sleep 1; return ;;
+            2) config_set "deepseekModel" "deepseek-v4-flash"; echo -e "${CLR_GREEN}Selected: deepseek-v4-flash (Flash)${CLR_RESET}"; sleep 1; return ;;
+            m) ask "Enter model ID: " m; [[ -n "$m" ]] && { config_set "deepseekModel" "$m"; echo -e "${CLR_GREEN}Model: $m${CLR_RESET}"; read -rp "Press Enter" || true; }; return ;;
             k) set_api_key ;;
             b) return ;;
         esac

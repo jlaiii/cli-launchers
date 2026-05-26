@@ -34,7 +34,7 @@ $script:VersionCache = Join-Path $script:BaseDir "DeepSeek-Launcher.versions.jso
 $script:CacheTTLMinutes = 60
 
 $script:DefaultConfig = @{
-    deepseekModel   = "deepseek-chat"
+    deepseekModel   = "deepseek-v4-pro"
     deepseekApiKey  = ""
     skipPermissions = $true
 }
@@ -253,19 +253,20 @@ function Show-DeepSeekModelPicker {
         $cfg = Get-Config
         Write-Host "Current: $($cfg.deepseekModel)" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "  [1] DeepSeek V4 (Recommended)  deepseek-chat" -ForegroundColor Yellow
-        Write-Host "  [2] DeepSeek R1 (Reasoning)    deepseek-reasoner" -ForegroundColor Yellow
+        Write-Host "  [1] DeepSeek V4 Pro (Recommended)  deepseek-v4-pro" -ForegroundColor Yellow
+        Write-Host "  [2] DeepSeek V4 Flash               deepseek-v4-flash" -ForegroundColor Yellow
         Write-Host "  [M] Manual entry" -ForegroundColor Yellow
         Write-Host "  [K] Set API Key" -ForegroundColor White
         Write-Host "  [B] Back" -ForegroundColor Magenta
         Write-Host ""
         $choice = Read-Host "Enter choice"
         switch ($choice.ToLower()) {
-            "1" { $cfg = Get-Config; $cfg.deepseekModel = "deepseek-chat"; Save-Config $cfg; Write-Host "Model: deepseek-chat" -ForegroundColor Green; Start-Sleep -Seconds 1 }
-            "2" { $cfg = Get-Config; $cfg.deepseekModel = "deepseek-reasoner"; Save-Config $cfg; Write-Host "Model: deepseek-reasoner" -ForegroundColor Green; Start-Sleep -Seconds 1 }
+            "1" { $cfg = Get-Config; $cfg.deepseekModel = "deepseek-v4-pro"; Save-Config $cfg; Write-Host "Selected: deepseek-v4-pro (V4 Pro)" -ForegroundColor Green; Start-Sleep -Seconds 1; return }
+            "2" { $cfg = Get-Config; $cfg.deepseekModel = "deepseek-v4-flash"; Save-Config $cfg; Write-Host "Selected: deepseek-v4-flash (Flash)" -ForegroundColor Green; Start-Sleep -Seconds 1; return }
             "m" {
                 $manual = Read-Host "Enter DeepSeek model ID"
                 if ($manual) { $cfg = Get-Config; $cfg.deepseekModel = $manual; Save-Config $cfg; Write-Host "Model: $manual" -ForegroundColor Green; Read-Host "Press Enter to continue" }
+                return
             }
             "k" { Set-DeepSeekApiKey }
             "b" { return }

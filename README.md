@@ -81,7 +81,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 - Detects and auto-installs Node.js / npm and Codex CLI (via `npm install -g @openai/codex`)
 - Detects and auto-installs Claude Code (via official installer)
 - Checks for updates against npm (Codex, Claude Code)
-- DeepSeek model picker — V4 (`deepseek-chat`), R1 (`deepseek-reasoner`), or manual entry
+- DeepSeek model picker — V4 Pro (`deepseek-v4-pro`), V4 Flash (`deepseek-v4-flash`), or manual entry
 - API key setup and persistence
 - Codex CLI: sets `OPENAI_API_KEY` + `OPENAI_BASE_URL` for direct DeepSeek access
 - Codex App: writes a profile config (`--profile cli-launcher-deepseek`) with `wire_api = "chat"`
@@ -92,7 +92,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 |---|--------|
 | 1 | Install / Update Codex CLI |
 | 2 | Install / Update Claude Code |
-| 3 | Pick DeepSeek Model (V4 / R1 / manual) |
+| 3 | Pick DeepSeek Model (V4 Pro / Flash / manual) |
 | 4 | Set DeepSeek API Key |
 | 5 | Launch Codex CLI (via DeepSeek) |
 | 6 | Launch Claude Code (via DeepSeek) |
@@ -100,7 +100,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 | C | Clear Version Cache |
 | T | Toggle Permission Bypass |
 
-**Config:** Model: `deepseek-chat` (V4) · API key stored locally · Skip-perms: ON
+**Config:** Model: `deepseek-v4-pro` (V4 Pro) · API key stored locally · Skip-perms: ON
 
 ---
 
