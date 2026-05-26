@@ -359,6 +359,7 @@ show_status() {
 }
 
 show_main_menu() {
+    clear
     show_status
     local oExists="NO"; command -v ollama &>/dev/null && oExists="YES"
     local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")

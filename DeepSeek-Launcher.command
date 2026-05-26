@@ -310,6 +310,7 @@ show_status() {
 }
 
 show_main_menu() {
+    clear
     show_status
     local cCodex="NO"; command -v codex &>/dev/null && cCodex="YES"
     local cClaude="NO"; command -v claude &>/dev/null && cClaude="YES"

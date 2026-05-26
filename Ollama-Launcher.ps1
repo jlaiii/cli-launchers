@@ -547,6 +547,7 @@ function Show-Status {
 # Main Menu
 # ============================================
 function Show-MainMenu {
+    Clear-Host
     Show-Status
     $oExists = Test-CommandExists "ollama"
     $cCodex  = Test-CommandExists "codex"

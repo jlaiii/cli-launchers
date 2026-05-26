@@ -411,6 +411,7 @@ function Show-Status {
 # Main Menu
 # ============================================
 function Show-MainMenu {
+    Clear-Host
     Show-Status
     $cCodex  = Test-CommandExists "codex"
     $cClaude = Test-CommandExists "claude"
