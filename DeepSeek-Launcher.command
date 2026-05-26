@@ -252,8 +252,12 @@ launch_codex_app() {
     local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
     local codexHome="$HOME/.codex"
     mkdir -p "$codexHome"
-    local profileFile="$codexHome/cli-launcher-deepseek.config.toml"
-    cat > "$profileFile" << TOML
+    local configFile="$codexHome/config.toml"
+    local backupFile="$codexHome/config.toml.cli-launcher-backup"
+    local hadExisting=0
+    [[ -f "$configFile" ]] && { cp "$configFile" "$backupFile"; hadExisting=1; }
+
+    cat > "$configFile" << TOML
 model = "$model"
 model_provider = "deepseek"
 wire_api = "chat"
@@ -264,11 +268,17 @@ base_url = "https://api.deepseek.com/v1"
 env_key = "DEEPSEEK_API_KEY"
 TOML
     export DEEPSEEK_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-    local -a cmd=("codex" "app" "--profile" "cli-launcher-deepseek")
+    local -a cmd=("codex" "app")
     clear
     echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
     "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
-    rm -f "$profileFile"
+
+    # Restore original config
+    if [[ "$hadExisting" == "1" ]]; then
+        cp "$backupFile" "$configFile"; rm -f "$backupFile"
+    else
+        rm -f "$configFile"
+    fi
     read -rp "Session ended. Press Enter" || true
 }
 

@@ -337,7 +337,13 @@ function Launch-CodexApp {
     $cfg = Get-Config
     $codexHome = Join-Path $env:USERPROFILE ".codex"
     if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
-    $profileFile = Join-Path $codexHome "cli-launcher-deepseek.config.toml"
+
+    # Back up existing config, write a clean DeepSeek config
+    $configFile = Join-Path $codexHome "config.toml"
+    $backupFile = Join-Path $codexHome "config.toml.cli-launcher-backup"
+    $hadExisting = Test-Path $configFile
+    if ($hadExisting) { Copy-Item $configFile $backupFile -Force }
+
     $toml = @"
 model = "$($cfg.deepseekModel)"
 model_provider = "deepseek"
@@ -348,10 +354,10 @@ name = "DeepSeek"
 base_url = "https://api.deepseek.com/v1"
 env_key = "DEEPSEEK_API_KEY"
 "@
-    Set-Content -LiteralPath $profileFile -Value $toml -Encoding UTF8
+    Set-Content -LiteralPath $configFile -Value $toml -Encoding UTF8
     $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
 
-    $cmdParts = @("codex", "app", "--profile", "cli-launcher-deepseek")
+    $cmdParts = @("codex", "app")
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
@@ -361,7 +367,10 @@ env_key = "DEEPSEEK_API_KEY"
         & $cmdParts[0] @cmdArgs
         if ($LASTEXITCODE -ne 0) { Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow }
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Remove-Item $profileFile -Force -ErrorAction SilentlyContinue
+
+    # Restore original config
+    if ($hadExisting) { Copy-Item $backupFile $configFile -Force; Remove-Item $backupFile -Force }
+    else { Remove-Item $configFile -Force -ErrorAction SilentlyContinue }
     Read-Host "Session ended. Press Enter to return to menu"
 }
 

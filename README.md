@@ -84,7 +84,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 - DeepSeek model picker — V4 Pro (`deepseek-v4-pro`), V4 Flash (`deepseek-v4-flash`), or manual entry
 - API key setup and persistence
 - Codex CLI: sets `OPENAI_API_KEY` + `OPENAI_BASE_URL` for direct DeepSeek access
-- Codex App: writes a profile config (`--profile cli-launcher-deepseek`) with `wire_api = "chat"`
+- Codex App: writes config.toml with DeepSeek provider + `wire_api = "chat"`, backs up and restores any existing config
 - Claude Code: sets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` for Anthropic-compatible endpoint
 
 **Menu:**
@@ -128,7 +128,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 - The `.bat` files are self-extracting — they embed a full PowerShell script and clean up the temp file when done.
 - The `.command` files are plain bash scripts that use `python3` for JSON persistence.
 - API keys are stored locally in config files and only used as environment variables at launch time.
-- The DeepSeek Codex App integration uses a profile file (`--profile`) that is cleaned up after the session ends.
+- The DeepSeek Codex App integration backs up your existing `config.toml`, writes a clean DeepSeek config for the session, then restores the original when the app exits.
 
 ---
 
