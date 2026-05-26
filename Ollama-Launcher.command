@@ -329,6 +329,16 @@ launch_claude() {
     read -rp "Session ended. Press Enter" || true
 }
 
+launch_codex_app() {
+    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
+    start_ollama_server || { read -rp "Press Enter" || true; return; }
+    local -a cmd=("ollama" "launch" "codex-app" "--model" "$model")
+    clear
+    echo -e "\n${CLR_GREEN}>>> ${cmd[*]}${CLR_RESET}"
+    "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
+    read -rp "Session ended. Press Enter" || true
+}
+
 # --- Status & Menu ---
 show_status() {
     local oExists="NO"; command -v ollama &>/dev/null && oExists="YES"
@@ -378,8 +388,9 @@ show_main_menu() {
     fi
     echo -e "[4] Launch Codex CLI (via Ollama) ${CLR_GREEN}"
     echo -e "[5] Launch Claude Code (via Ollama) ${CLR_GREEN}"
-    echo -e "[6] Check / Fix Ollama Sign-in ${CLR_WHITE}"
-    echo -e "[7] Clear Version Cache ${CLR_WHITE}"
+    echo -e "[6] Launch Codex App (via Ollama) ${CLR_GREEN}"
+    echo -e "[7] Check / Fix Ollama Sign-in ${CLR_WHITE}"
+    echo -e "[8] Clear Version Cache ${CLR_WHITE}"
     local permText
     [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
     echo -e "[T] Toggle Permission Bypass [currently: $permText] ${CLR_WHITE}"
@@ -401,6 +412,11 @@ if [[ $# -gt 0 ]]; then
             command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
             start_ollama_server || exit 1
             launch_claude; exit $?
+            ;;
+        codex-app)
+            command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
+            start_ollama_server || exit 1
+            launch_codex_app; exit $?
             ;;
     esac
 fi
@@ -438,8 +454,12 @@ while true; do
             command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
             launch_claude
             ;;
-        6) check_ollama_signin ;;
-        7)
+        6)
+            command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
+            launch_codex_app
+            ;;
+        7) check_ollama_signin ;;
+        8)
             cache_set "ollamaLastChecked" ""
             echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1
             ;;

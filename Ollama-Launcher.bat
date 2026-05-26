@@ -10,14 +10,15 @@ exit /b %EC%
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Ollama CLI Launcher â€” Codex CLI + Claude Code through Ollama
+    Ollama CLI Launcher â€” Codex CLI + Claude Code + Codex App through Ollama
 .DESCRIPTION
-    Single launcher for running Codex CLI and Claude Code through Ollama.
+    Single launcher for running Codex CLI, Claude Code, and Codex App through Ollama.
     Browse cloud/local models, pull models, check for updates, toggle permissions.
     Usage:
       Ollama-Launcher.bat                  -> interactive menu
       Ollama-Launcher.bat codex            -> launch Codex CLI directly
       Ollama-Launcher.bat claude           -> launch Claude Code directly
+      Ollama-Launcher.bat codex-app        -> launch Codex App directly
 #>
 
 $ErrorActionPreference = "Stop"
@@ -476,6 +477,23 @@ function Launch-Claude {
     Read-Host "Session ended. Press Enter to return to menu"
 }
 
+function Launch-CodexApp {
+    $model = (Get-Config).selectedModel
+    if (-not (Start-OllamaServer)) { Read-Host "Press Enter to return"; return }
+    if (-not (Ensure-CodexInstalled)) { return }
+
+    $cmdParts = @("ollama", "launch", "codex-app", "--model", $model)
+    $cmdString = $cmdParts -join ' '
+    Write-Host "`n>>> $cmdString" -ForegroundColor Green
+    Write-Host ("-" * 50) -ForegroundColor DarkGray
+    Clear-Host
+    try {
+        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { Write-Host "Codex App exited with code $($proc.ExitCode)." -ForegroundColor Yellow }
+    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
+    Read-Host "Session ended. Press Enter to return to menu"
+}
+
 function Ensure-CodexInstalled {
     if (Test-CommandExists "codex") { return $true }
     Write-Host "Codex CLI not found." -ForegroundColor Yellow
@@ -586,8 +604,14 @@ function Show-MainMenu {
         $reason = if (-not $oExists) { "Ollama not installed" } else { "Claude Code not installed" }
         Write-Host "[5] Launch Claude Code [$reason]" -ForegroundColor DarkGray
     }
-    Write-Host "[6] Check / Fix Ollama Sign-in" -ForegroundColor White
-    Write-Host "[7] Clear Version Cache" -ForegroundColor White
+    if ($cCodex -and $oExists) {
+        Write-Host "[6] Launch Codex App (via Ollama)" -ForegroundColor Green
+    } else {
+        $reason = if (-not $oExists) { "Ollama not installed" } else { "Codex CLI not installed" }
+        Write-Host "[6] Launch Codex App [$reason]" -ForegroundColor DarkGray
+    }
+    Write-Host "[7] Check / Fix Ollama Sign-in" -ForegroundColor White
+    Write-Host "[8] Clear Version Cache" -ForegroundColor White
     $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
     Write-Host "[T] Toggle Permission Bypass [currently: $permText]" -ForegroundColor White
     Write-Host "[Q] Quit" -ForegroundColor Magenta
@@ -607,6 +631,10 @@ if ($args.Count -gt 0) {
         if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
         if (-not (Start-OllamaServer)) { exit 1 }
         Launch-Claude; exit $LASTEXITCODE
+    } elseif ($target -eq "codex-app") {
+        if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
+        if (-not (Start-OllamaServer)) { exit 1 }
+        Launch-CodexApp; exit $LASTEXITCODE
     }
 }
 
@@ -649,8 +677,19 @@ while ($true) {
                 Read-Host "Press Enter to continue"
             } else { Launch-Claude }
         }
-        "6" { Check-OllamaSignin }
-        "7" {
+        "6" {
+            if (-not (Test-CommandExists "ollama")) {
+                Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
+                Read-Host "Press Enter to continue"
+            } elseif (-not (Test-CommandExists "codex")) {
+                Write-Host "Codex CLI not installed (needed for Codex App)." -ForegroundColor Red
+                $ans = Read-Host "Install now? (y/n)"
+                if ($ans -eq 'y') { Ensure-CodexInstalled | Out-Null }
+                Read-Host "Press Enter to continue"
+            } else { Launch-CodexApp }
+        }
+        "7" { Check-OllamaSignin }
+        "8" {
             $cache = Get-VersionCache
             $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""
             Save-VersionCache $cache
