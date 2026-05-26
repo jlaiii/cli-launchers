@@ -727,38 +727,13 @@ function Launch-ClaudeOllama {
     $cfg = Get-Config
 
     if ($cfg.provider -eq "deepseek") {
-        if (-not $cfg.deepseekApiKey) {
-            Write-Host "ERROR: DeepSeek API key is not set. Use menu option 3 to set it." -ForegroundColor Red
-            Read-Host "Press Enter to return to menu"
-            return
-        }
-
-        Clear-Host
-        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
-
-        $cmdParts = @("claude")
-        $cmdParts += "--model=$($cfg.deepseekModel)"
-        if ($cfg.skipPermissions) {
-            $cmdParts += "--dangerously-skip-permissions"
-        }
-
-        $cmdString = $cmdParts -join ' '
-        Write-Host "`n>>> DeepSeek | $cmdString" -ForegroundColor Green
-        Write-Host ("-" * 50) -ForegroundColor DarkGray
-
-        Clear-Host
-        try {
-            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-            & $cmdParts[0] @cmdArgs
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "Claude Code exited with code $LASTEXITCODE." -ForegroundColor Yellow
-            }
-        } catch {
-            Write-Host "ERROR launching Claude: $_" -ForegroundColor Red
-        }
-        Read-Host "Claude Code session ended. Press Enter to return to menu"
-        return
+        Write-Host "Claude Code requires Ollama's API translation layer." -ForegroundColor Yellow
+        Write-Host "Switching to Ollama provider automatically." -ForegroundColor Cyan
+        Write-Host "Tip: Pull a DeepSeek model in Ollama (ollama pull deepseek-v4-pro:cloud)" -ForegroundColor DarkGray
+        Write-Host "     then select it in the model picker for the best experience." -ForegroundColor DarkGray
+        Start-Sleep -Seconds 3
+        $cfg.provider = "ollama"
+        Save-Config $cfg
     }
 
     $model = $cfg.selectedModel
@@ -870,7 +845,7 @@ function Show-Status {
     } else {
         Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
     }
-    Write-Host "  Provider      : $($cfg.provider)" -ForegroundColor Cyan
+    Write-Host "  Provider      : $($cfg.provider)$(if ($cfg.provider -eq 'deepseek') { ' (falls back to Ollama - Claude needs Ollama)' })" -ForegroundColor Cyan
     if ($cfg.provider -eq "deepseek") {
         Write-Host "  DS Model      : $($cfg.deepseekModel)" -ForegroundColor Cyan
         $dsKeyStatus = if ($cfg.deepseekApiKey) { "**** (set)" } else { "(not set)" }
@@ -958,46 +933,35 @@ if ($args.Count -gt 0) {
             Install-Ollama
         }
         if (-not (Start-OllamaServer)) { exit 1 }
-    } else {
-        if (-not $cfg.deepseekApiKey) {
-            Write-Host "DeepSeek API key is not set. Run launcher menu to configure." -ForegroundColor Red
-            exit 1
-        }
-        $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-        $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
     }
+    if ($cfg.provider -eq "deepseek") {
+        Write-Host "Claude Code requires Ollama. Falling back to Ollama provider." -ForegroundColor Yellow
+        $cfg.provider = "ollama"
+        Save-Config $cfg
+    }
+    if (-not (Test-CommandExists "ollama")) {
+        Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
+        Install-Ollama
+    }
+    if (-not (Start-OllamaServer)) { exit 1 }
 
     Clear-Host
-    $hasModel = $false
-    foreach ($a in $launchArgs) {
-        if ($a -eq "--model" -or $a.StartsWith("--model=")) { $hasModel = $true }
-    }
-    $cmdParts = if ($cfg.provider -eq "deepseek") {
-        $parts = @("claude")
-        if (-not $hasModel) { $parts += "--model=$($cfg.deepseekModel)" }
+    $cmdParts = if ($cfg.customCommand) {
+        $parts = $cfg.customCommand.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+        $parts += "--model"
+        $parts += $cfg.selectedModel
+        $parts += "--"
         $parts
     } else {
         @("ollama", "launch", "claude", "--model", $cfg.selectedModel, "--")
     }
-    if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
-    if ($cfg.customCommand -and $cfg.provider -ne "deepseek") {
-        $cmdParts = $cfg.customCommand.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
-        $cmdParts += "--model"
-        $cmdParts += $cfg.selectedModel
-        $cmdParts += "--"
-        if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
-    }
     if ($launchArgs.Count -gt 0) { $cmdParts += $launchArgs }
+    if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
 
     $cmdString = $cmdParts -join ' '
-    Write-Host ">>> $cmdString $(if ($cfg.provider -eq 'deepseek') { '(DeepSeek API)' })" -ForegroundColor Green
+    Write-Host ">>> $cmdString" -ForegroundColor Green
     try {
-        if ($cfg.provider -eq "deepseek") {
-            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-            & $cmdParts[0] @cmdArgs
-        } else {
-            $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
-        }
+        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
     } catch {
         Write-Host "ERROR: $_" -ForegroundColor Red
         exit 1
