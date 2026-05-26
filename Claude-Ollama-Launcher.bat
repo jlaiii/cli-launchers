@@ -727,13 +727,38 @@ function Launch-ClaudeOllama {
     $cfg = Get-Config
 
     if ($cfg.provider -eq "deepseek") {
-        Write-Host "Claude Code requires Ollama's API translation layer." -ForegroundColor Yellow
-        Write-Host "Switching to Ollama provider automatically." -ForegroundColor Cyan
-        Write-Host "Tip: Pull a DeepSeek model in Ollama (ollama pull deepseek-v4-pro:cloud)" -ForegroundColor DarkGray
-        Write-Host "     then select it in the model picker for the best experience." -ForegroundColor DarkGray
-        Start-Sleep -Seconds 3
-        $cfg.provider = "ollama"
-        Save-Config $cfg
+        if (-not $cfg.deepseekApiKey) {
+            Write-Host "ERROR: DeepSeek API key is not set. Use menu option 3 to set it." -ForegroundColor Red
+            Read-Host "Press Enter to return to menu"
+            return
+        }
+
+        Clear-Host
+        $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
+        $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
+        $env:ANTHROPIC_AUTH_TOKEN = $cfg.deepseekApiKey
+
+        $cmdParts = @("claude", "--model", $cfg.deepseekModel)
+        if ($cfg.skipPermissions) {
+            $cmdParts += "--dangerously-skip-permissions"
+        }
+
+        $cmdString = $cmdParts -join ' '
+        Write-Host "`n>>> DeepSeek | $cmdString" -ForegroundColor Green
+        Write-Host ("-" * 50) -ForegroundColor DarkGray
+
+        Clear-Host
+        try {
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Claude Code exited with code $LASTEXITCODE." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "ERROR launching Claude: $_" -ForegroundColor Red
+        }
+        Read-Host "Claude Code session ended. Press Enter to return to menu"
+        return
     }
 
     $model = $cfg.selectedModel
@@ -845,7 +870,7 @@ function Show-Status {
     } else {
         Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
     }
-    Write-Host "  Provider      : $($cfg.provider)$(if ($cfg.provider -eq 'deepseek') { ' (falls back to Ollama - Claude needs Ollama)' })" -ForegroundColor Cyan
+    Write-Host "  Provider      : $($cfg.provider.ToUpper())" -ForegroundColor Cyan
     if ($cfg.provider -eq "deepseek") {
         Write-Host "  DS Model      : $($cfg.deepseekModel)" -ForegroundColor Cyan
         $dsKeyStatus = if ($cfg.deepseekApiKey) { "**** (set)" } else { "(not set)" }
@@ -935,18 +960,25 @@ if ($args.Count -gt 0) {
         if (-not (Start-OllamaServer)) { exit 1 }
     }
     if ($cfg.provider -eq "deepseek") {
-        Write-Host "Claude Code requires Ollama. Falling back to Ollama provider." -ForegroundColor Yellow
-        $cfg.provider = "ollama"
-        Save-Config $cfg
+        if (-not $cfg.deepseekApiKey) {
+            Write-Host "DeepSeek API key is not set. Run launcher menu to configure." -ForegroundColor Red
+            exit 1
+        }
+        $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
+        $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
+        $env:ANTHROPIC_AUTH_TOKEN = $cfg.deepseekApiKey
+    } else {
+        if (-not (Test-CommandExists "ollama")) {
+            Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
+            Install-Ollama
+        }
+        if (-not (Start-OllamaServer)) { exit 1 }
     }
-    if (-not (Test-CommandExists "ollama")) {
-        Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow
-        Install-Ollama
-    }
-    if (-not (Start-OllamaServer)) { exit 1 }
 
     Clear-Host
-    $cmdParts = if ($cfg.customCommand) {
+    $cmdParts = if ($cfg.provider -eq "deepseek") {
+        @("claude", "--model", $cfg.deepseekModel)
+    } elseif ($cfg.customCommand) {
         $parts = $cfg.customCommand.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
         $parts += "--model"
         $parts += $cfg.selectedModel
@@ -959,9 +991,14 @@ if ($args.Count -gt 0) {
     if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
 
     $cmdString = $cmdParts -join ' '
-    Write-Host ">>> $cmdString" -ForegroundColor Green
+    Write-Host ">>> $cmdString $(if ($cfg.provider -eq 'deepseek') { '(DeepSeek API)' })" -ForegroundColor Green
     try {
-        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
+        if ($cfg.provider -eq "deepseek") {
+            $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+            & $cmdParts[0] @cmdArgs
+        } else {
+            $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
+        }
     } catch {
         Write-Host "ERROR: $_" -ForegroundColor Red
         exit 1
