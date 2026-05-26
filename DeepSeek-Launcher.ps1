@@ -292,7 +292,7 @@ function Launch-CodexCLI {
     $env:OPENAI_API_KEY = $cfg.deepseekApiKey
     $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
 
-    $cmdParts = @("codex")
+    $cmdParts = @("codex", "--model-reasoning-effort", "high")
     if ($cfg.skipPermissions) { $cmdParts += "--yolo" }
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
@@ -347,6 +347,7 @@ function Launch-CodexApp {
     $toml = @"
 model = "$($cfg.deepseekModel)"
 model_provider = "deepseek"
+model_reasoning_effort = "high"
 wire_api = "chat"
 
 [model_providers.deepseek]

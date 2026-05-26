@@ -225,7 +225,7 @@ launch_codex_cli() {
     local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
     export OPENAI_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
     export OPENAI_BASE_URL="https://api.deepseek.com/v1"
-    local -a cmd=("codex")
+    local -a cmd=("codex" "--model-reasoning-effort" "high")
     [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && cmd+=("--yolo")
     clear
     echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
@@ -260,6 +260,7 @@ launch_codex_app() {
     cat > "$configFile" << TOML
 model = "$model"
 model_provider = "deepseek"
+model_reasoning_effort = "high"
 wire_api = "chat"
 
 [model_providers.deepseek]
