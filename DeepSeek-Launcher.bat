@@ -10,7 +10,7 @@ exit /b %EC%
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    DeepSeek CLI Launcher â€” Codex CLI + Claude Code + Codex App through DeepSeek API
+    DeepSeek CLI Launcher — Codex CLI + Claude Code + Codex App through DeepSeek API
 .DESCRIPTION
     Single launcher for running Codex CLI, Claude Code, and Codex App through
     the DeepSeek API. Set your API key, pick a model, and launch any tool.
@@ -310,13 +310,12 @@ function Launch-CodexCLI {
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Clear-Host
     try {
+        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
         $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        & $cmdParts[0] @cmdArgs
-        if ($LASTEXITCODE -ne 0) { Write-Host "Codex exited with code $LASTEXITCODE." -ForegroundColor Yellow }
+        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Session ended. Press Enter to return to menu"
 }
 
 function Launch-ClaudeCode {
@@ -330,13 +329,12 @@ function Launch-ClaudeCode {
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Clear-Host
     try {
+        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
         $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        & $cmdParts[0] @cmdArgs
-        if ($LASTEXITCODE -ne 0) { Write-Host "Claude Code exited with code $LASTEXITCODE." -ForegroundColor Yellow }
+        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Session ended. Press Enter to return to menu"
 }
 
 function Launch-CodexApp {
@@ -363,36 +361,247 @@ function Launch-CodexApp {
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Clear-Host
     try {
+        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
         $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        & $cmdParts[0] @cmdArgs
-        if ($LASTEXITCODE -ne 0) { Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow }
+        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Session ended. Press Enter to return to menu"
+}
+
+function Write-ClaudeDesktop3pConfig {
+    param([string]$ApiKey, [string]$DeepSeekModel)
+
+    # Map DeepSeek model to a Claude model name that passes the whitelist.
+    # DeepSeek's /anthropic endpoint auto-maps:
+    #   claude-opus*              -> deepseek-v4-pro
+    #   claude-sonnet* / haiku*   -> deepseek-v4-flash
+    $claudeModel = switch -Wildcard ($DeepSeekModel) {
+        "deepseek-v4-pro*"   { "claude-opus-4-7" }
+        "deepseek-v4-flash*"  { "claude-sonnet-4-6" }
+        default               { "claude-sonnet-4-6" }
+    }
+
+    $modelList = [string[]]@($claudeModel, "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001")
+    $allModels = @($modelList | Sort-Object -Unique)
+
+    $gatewayConfig = [ordered]@{
+        inferenceProvider          = "gateway"
+        inferenceGatewayBaseUrl    = "https://api.deepseek.com/anthropic"
+        inferenceGatewayApiKey     = $ApiKey
+        inferenceGatewayAuthScheme = "bearer"
+        inferenceModels            = $allModels
+        disableEssentialTelemetry    = $true
+        disableNonessentialTelemetry = $true
+        disableNonessentialServices  = $true
+        unstableDisableModelVerification = $true
+    }
+
+    $roaming = [Environment]::GetFolderPath("ApplicationData")
+    $local   = [Environment]::GetFolderPath("LocalApplicationData")
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
+    # ================================================================
+    # Approach 1: configLibrary (primary — what modern Claude Desktop reads)
+    #   %LOCALAPPDATA%\Claude-3p\configLibrary\_meta.json
+    #   %LOCALAPPDATA%\Claude-3p\configLibrary\{uuid}.json
+    # ================================================================
+    $configId = [Guid]::NewGuid().ToString()
+    $libPaths = @(
+        (Join-Path $local "Claude-3p\configLibrary")
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\configLibrary")
+    )
+    foreach ($libDir in $libPaths) {
+        if (-not (Test-Path $libDir)) { New-Item -ItemType Directory -Force -Path $libDir | Out-Null }
+
+        # Clean up old UUID config files from previous runs
+        Get-ChildItem $libDir -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -ne "_meta.json" -and $_.Name -ne "$configId.json"
+        } | Remove-Item -Force
+
+        $metaPath = Join-Path $libDir "_meta.json"
+        $meta = [ordered]@{
+            appliedId = $configId
+            entries   = @(@{ id = $configId; name = "DeepSeek Gateway" })
+        }
+        [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 3), $utf8NoBom)
+
+        $configPath = Join-Path $libDir "$configId.json"
+        [System.IO.File]::WriteAllText($configPath, ($gatewayConfig | ConvertTo-Json -Depth 5), $utf8NoBom)
+    }
+
+    # ================================================================
+    # Approach 2: claude_desktop_config.json (legacy / broader compat)
+    #   Merge deploymentMode=3p + enterpriseConfig into existing files
+    # ================================================================
+    $enterpriseConfig = [ordered]@{}
+    foreach ($key in $gatewayConfig.Keys) {
+        if ($key -ne "unstableDisableModelVerification") {
+            $enterpriseConfig[$key] = $gatewayConfig[$key]
+        }
+    }
+
+    $config3p = [ordered]@{
+        deploymentMode = "3p"
+        enterpriseConfig = $enterpriseConfig
+        preferences = [ordered]@{
+            secureVmFeaturesEnabled     = $true
+            coworkScheduledTasksEnabled = $true
+            ccdScheduledTasksEnabled    = $true
+            sidebarMode                 = "epitaxy"
+            coworkWebSearchEnabled      = $true
+        }
+    }
+    $json3p = $config3p | ConvertTo-Json -Depth 5
+
+    $paths3p = @(
+        (Join-Path $local "Claude-3p\claude_desktop_config.json")
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\claude_desktop_config.json")
+        (Join-Path $roaming "Claude-3p\claude_desktop_config.json")
+    )
+    foreach ($p in $paths3p) {
+        $dir = Split-Path $p -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        [System.IO.File]::WriteAllText($p, $json3p, $utf8NoBom)
+    }
+
+    # Merge into main Claude config (preserve the Desktop's own keys)
+    $mainPaths = @(
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json")
+        (Join-Path $local "Claude\claude_desktop_config.json")
+        (Join-Path $roaming "Claude\claude_desktop_config.json")
+    )
+    foreach ($p in $mainPaths) {
+        $dir = Split-Path $p -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+
+        $existing = $null
+        if (Test-Path $p) {
+            try { $existing = Get-Content $p -Raw | ConvertFrom-Json } catch { }
+        }
+        if (-not $existing) { $existing = New-Object PSObject }
+
+        $existing | Add-Member -NotePropertyName "deploymentMode" -NotePropertyValue "3p" -Force
+        $existing | Add-Member -NotePropertyName "enterpriseConfig" -NotePropertyValue $enterpriseConfig -Force
+
+        if (-not ($existing.PSObject.Properties.Name -contains "preferences")) {
+            $existing | Add-Member -NotePropertyName "preferences" -NotePropertyValue ([ordered]@{}) -Force
+        }
+
+        $merged = $existing | ConvertTo-Json -Depth 6
+        [System.IO.File]::WriteAllText($p, $merged, $utf8NoBom)
+    }
+
+    Write-Host "  Wrote 3p config (configLibrary + claude_desktop_config.json)" -ForegroundColor DarkGray
+}
+
+function Clear-ClaudeDesktopSession {
+    # Remove active OAuth session so Claude Desktop reads the 3p config
+    # instead of auto-logging into an existing Anthropic account.
+    $local   = [Environment]::GetFolderPath("LocalApplicationData")
+    $base    = Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
+
+    Write-Host "Clearing any existing Claude Desktop session..." -ForegroundColor DarkGray
+
+    # Clear OAuth token from config.json (the main auth session)
+    $cfgPath = Join-Path $base "config.json"
+    if (Test-Path $cfgPath) {
+        try {
+            $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            $changed = $false
+            # Clear all known auth-related keys
+            $keysToClear = @("oauth:tokenCache", "oauth:refreshToken", "oauth:accountId",
+                             "oauth:accessToken", "oauth:expiresAt", "oauth:token",
+                             "activeAccountId", "activeOrgId", "authSession",
+                             "lastSignedInAccount", "oauthTokens")
+            foreach ($key in $keysToClear) {
+                if ($cfg.PSObject.Properties[$key]) {
+                    $cfg.PSObject.Properties.Remove($key)
+                    $changed = $true
+                }
+            }
+            if ($changed) {
+                $cleaned = $cfg | ConvertTo-Json -Depth 5
+                $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+                [System.IO.File]::WriteAllText($cfgPath, $cleaned, $utf8NoBom)
+                Write-Host "  Cleared OAuth session from config.json" -ForegroundColor DarkGray
+            }
+        } catch { }
+    }
+
+    # Remove cowork-enabled-cli-ops (tied to the signed-in account)
+    $coworkPath = Join-Path $base "cowork-enabled-cli-ops.json"
+    if (Test-Path $coworkPath) {
+        Remove-Item $coworkPath -Force
+        Write-Host "  Removed cowork session file" -ForegroundColor DarkGray
+    }
+
+    # Remove ant-did (anonymous device ID that may link to prior session)
+    $antDidPath = Join-Path $base "ant-did"
+    if (Test-Path $antDidPath) {
+        Remove-Item $antDidPath -Force
+        Write-Host "  Removed device identity file" -ForegroundColor DarkGray
+    }
+}
+
+function Enable-ClaudeDeveloperMode {
+    # Create developer_settings.json so the Developer menu + 3p inference appear
+    # without the user having to enable it manually via Help -> Troubleshooting.
+    $paths = @(
+        (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\developer_settings.json")
+        (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Claude\developer_settings.json")
+        (Join-Path ([Environment]::GetFolderPath("ApplicationData")) "Claude\developer_settings.json")
+    )
+    $json = '{"allowDevTools":true}'
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    foreach ($p in $paths) {
+        $dir = Split-Path $p -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        [System.IO.File]::WriteAllText($p, $json, $utf8NoBom)
+    }
 }
 
 function Launch-ClaudeDesktop {
     if (-not (Require-ApiKey)) { return }
     $cfg = Get-Config
 
-    $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
-    $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
-    $env:ANTHROPIC_CUSTOM_MODEL_OPTION = $cfg.deepseekModel
-    $env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "DeepSeek ($($cfg.deepseekModel))"
-    $env:ANTHROPIC_DEFAULT_OPUS_MODEL = $cfg.deepseekModel
-    $env:ANTHROPIC_DEFAULT_SONNET_MODEL = $cfg.deepseekModel
-    $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = $cfg.deepseekModel
-    $env:CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = "1"
+    # Kill any running Claude Desktop (GUI only, not CLI) so it starts fresh with the new config
+    Write-Host "`nPreparing Claude Desktop for third-party mode..." -ForegroundColor Cyan
+    $claudeDesktopProcs = Get-Process -Name "Claude" -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowHandle -ne 0
+    }
+    if ($claudeDesktopProcs) {
+        Write-Host "  Stopping running Claude Desktop..." -ForegroundColor DarkGray
+        $claudeDesktopProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
 
-    Write-Host "`nLaunching Claude Code Desktop with DeepSeek: $($cfg.deepseekModel)" -ForegroundColor Green
+    Clear-ClaudeDesktopSession
+    Enable-ClaudeDeveloperMode
+    Write-ClaudeDesktop3pConfig -ApiKey $cfg.deepseekApiKey -DeepSeekModel $cfg.deepseekModel
+
     Write-Host ("-" * 50) -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host "  Developer Mode + 3p config applied automatically" -ForegroundColor Green
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  If the app asks you to sign in:" -ForegroundColor Cyan
+    Write-Host "    -> Look for 'Continue with Gateway' on the sign-in screen" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  If you don't see the Gateway option:" -ForegroundColor Cyan
+    Write-Host "    1. In Claude Desktop, go to:" -ForegroundColor White
+    Write-Host "       Help -> Troubleshooting -> Enable Developer Mode" -ForegroundColor White
+    Write-Host "    2. Restart the launcher option" -ForegroundColor White
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Launching Claude Code Desktop..." -ForegroundColor Green
     try {
         Start-Process "shell:appsFolder\Claude_pzs8sxrjxfjjc!Claude"
     } catch {
         Write-Host "ERROR: Could not launch Claude Desktop." -ForegroundColor Red
         Write-Host "Install from: https://claude.ai/download" -ForegroundColor Yellow
-        Read-Host "Press Enter to return to menu"
     }
 }
 

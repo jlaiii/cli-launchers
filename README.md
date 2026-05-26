@@ -49,7 +49,7 @@ DeepSeek-Launcher.bat claude-desktop :: launch Claude Code Desktop
 
 ## Ollama Launcher
 
-Launches **Codex CLI**, **Claude Code**, and **Codex App** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
+Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Desktop** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
 
 **What it handles:**
 - Detects and auto-installs Ollama
@@ -59,6 +59,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through Ollama. Brows
 - Model browser — top 10 cloud models, local models, or manual entry
 - Auto-starts the Ollama server if not running
 - Launches via `ollama launch codex`, `ollama launch claude`, or `ollama launch codex-app`
+- Claude Code Desktop: writes 3p gateway config, auto-enables developer mode, clears OAuth session
 
 **Menu:**
 | # | Option |
@@ -80,7 +81,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through Ollama. Brows
 
 ## DeepSeek Launcher
 
-Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek API. Bring your own API key, pick a model, and launch any tool.
+Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Code Desktop** through the DeepSeek API. Bring your own API key, pick a model, and launch any tool.
 
 **What it handles:**
 - Detects and auto-installs Node.js / npm and Codex CLI (via `npm install -g @openai/codex`)
@@ -91,6 +92,7 @@ Launches **Codex CLI**, **Claude Code**, and **Codex App** through the DeepSeek 
 - Codex CLI: sets `OPENAI_API_KEY` + `OPENAI_BASE_URL` for direct DeepSeek access
 - Codex App: uses `-c` CLI overrides (`model_provider=deepseek`, `wire_api=chat`) — no file changes needed
 - Claude Code: sets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` for Anthropic-compatible endpoint
+- Claude Code Desktop: writes 3p config (`configLibrary` + `claude_desktop_config.json`) for gateway mode, auto-enables developer mode, clears OAuth session so you get "Continue with Gateway" at launch
 
 **Menu:**
 | # | Option |

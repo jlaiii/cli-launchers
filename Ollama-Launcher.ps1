@@ -447,12 +447,13 @@ function Launch-Codex {
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Clear-Host
     try {
-        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { Write-Host "Codex exited with code $($proc.ExitCode)." -ForegroundColor Yellow }
+        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
+        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Session ended. Press Enter to return to menu"
+    Read-Host "Press Enter to return to menu"
 }
 
 function Launch-Claude {
@@ -464,12 +465,13 @@ function Launch-Claude {
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Clear-Host
     try {
-        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { Write-Host "Claude Code exited with code $($proc.ExitCode)." -ForegroundColor Yellow }
+        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
+        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Session ended. Press Enter to return to menu"
+    Read-Host "Press Enter to return to menu"
 }
 
 function Launch-CodexApp {
@@ -481,12 +483,188 @@ function Launch-CodexApp {
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Clear-Host
     try {
-        $proc = Start-Process -FilePath $cmdParts[0] -ArgumentList $cmdParts[1..($cmdParts.Length-1)] -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { Write-Host "Codex App exited with code $($proc.ExitCode)." -ForegroundColor Yellow }
+        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
+        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
+        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Session ended. Press Enter to return to menu"
+    Read-Host "Press Enter to return to menu"
+}
+
+function Write-ClaudeDesktopOllamaConfig {
+    param([string]$OllamaModel)
+
+    # Claude Desktop's gateway mode requires an Anthropic-compatible API.
+    # Ollama's native API at localhost:11434 is NOT Anthropic-compatible.
+    # You need a proxy that translates Anthropic protocol <-> Ollama protocol.
+    # Tools: ollama launch claude (CLI-only), cc-relay, cdo, llm-proxyman, etc.
+    #
+    # This config points at port 11434 — it will work if you have a proxy
+    # running there that speaks Anthropic protocol. Otherwise Claude Desktop
+    # will fail to connect or get unexpected responses.
+
+    $gatewayConfig = [ordered]@{
+        inferenceProvider          = "gateway"
+        inferenceGatewayBaseUrl    = "http://127.0.0.1:11434"
+        inferenceGatewayApiKey     = "ollama"
+        inferenceGatewayAuthScheme = "bearer"
+        inferenceModels            = @("claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001")
+        disableEssentialTelemetry    = $true
+        disableNonessentialTelemetry = $true
+        disableNonessentialServices  = $true
+        unstableDisableModelVerification = $true
+    }
+
+    $roaming = [Environment]::GetFolderPath("ApplicationData")
+    $local   = [Environment]::GetFolderPath("LocalApplicationData")
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
+    # ================================================================
+    # Approach 1: configLibrary (primary — what modern Claude Desktop reads)
+    # ================================================================
+    $configId = [Guid]::NewGuid().ToString()
+    $libPaths = @(
+        (Join-Path $local "Claude-3p\configLibrary")
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\configLibrary")
+    )
+    foreach ($libDir in $libPaths) {
+        if (-not (Test-Path $libDir)) { New-Item -ItemType Directory -Force -Path $libDir | Out-Null }
+
+        # Clean up old UUID config files from previous runs
+        Get-ChildItem $libDir -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -ne "_meta.json" -and $_.Name -ne "$configId.json"
+        } | Remove-Item -Force
+
+        $metaPath = Join-Path $libDir "_meta.json"
+        $meta = [ordered]@{
+            appliedId = $configId
+            entries   = @(@{ id = $configId; name = "Ollama Gateway" })
+        }
+        [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 3), $utf8NoBom)
+
+        $configPath = Join-Path $libDir "$configId.json"
+        [System.IO.File]::WriteAllText($configPath, ($gatewayConfig | ConvertTo-Json -Depth 5), $utf8NoBom)
+    }
+
+    # ================================================================
+    # Approach 2: claude_desktop_config.json (legacy / broader compat)
+    # ================================================================
+    $enterpriseConfig = [ordered]@{}
+    foreach ($key in $gatewayConfig.Keys) {
+        if ($key -ne "unstableDisableModelVerification") {
+            $enterpriseConfig[$key] = $gatewayConfig[$key]
+        }
+    }
+
+    $config3p = [ordered]@{
+        deploymentMode = "3p"
+        enterpriseConfig = $enterpriseConfig
+        preferences = [ordered]@{
+            secureVmFeaturesEnabled     = $true
+            coworkScheduledTasksEnabled = $true
+            ccdScheduledTasksEnabled    = $true
+            sidebarMode                 = "epitaxy"
+            coworkWebSearchEnabled      = $true
+        }
+    }
+    $json3p = $config3p | ConvertTo-Json -Depth 5
+    $paths3p = @(
+        (Join-Path $roaming "Claude-3p\claude_desktop_config.json")
+        (Join-Path $local   "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\claude_desktop_config.json")
+    )
+    foreach ($p in $paths3p) {
+        $dir = Split-Path $p -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        [System.IO.File]::WriteAllText($p, $json3p, $utf8NoBom)
+    }
+
+    # Merge deployment into the main Claude config
+    $mainPaths = @(
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json")
+        (Join-Path $roaming "Claude\claude_desktop_config.json")
+    )
+    foreach ($p in $mainPaths) {
+        $dir = Split-Path $p -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+
+        $existing = $null
+        if (Test-Path $p) {
+            try { $existing = Get-Content $p -Raw | ConvertFrom-Json } catch { }
+        }
+        if (-not $existing) { $existing = New-Object PSObject }
+
+        $existing | Add-Member -NotePropertyName "deploymentMode" -NotePropertyValue "3p" -Force
+        $existing | Add-Member -NotePropertyName "enterpriseConfig" -NotePropertyValue $enterpriseConfig -Force
+
+        if (-not ($existing.PSObject.Properties.Name -contains "preferences")) {
+            $existing | Add-Member -NotePropertyName "preferences" -NotePropertyValue ([ordered]@{}) -Force
+        }
+        $merged = $existing | ConvertTo-Json -Depth 6
+        [System.IO.File]::WriteAllText($p, $merged, $utf8NoBom)
+    }
+
+    Write-Host "  Wrote 3p config (configLibrary + claude_desktop_config.json)" -ForegroundColor DarkGray
+}
+
+function Clear-ClaudeDesktopSession {
+    $local   = [Environment]::GetFolderPath("LocalApplicationData")
+    $base    = Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
+
+    Write-Host "Clearing any existing Claude Desktop session..." -ForegroundColor DarkGray
+
+    $cfgPath = Join-Path $base "config.json"
+    if (Test-Path $cfgPath) {
+        try {
+            $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            $changed = $false
+            $keysToClear = @("oauth:tokenCache", "oauth:refreshToken", "oauth:accountId",
+                             "oauth:accessToken", "oauth:expiresAt", "oauth:token",
+                             "activeAccountId", "activeOrgId", "authSession",
+                             "lastSignedInAccount", "oauthTokens")
+            foreach ($key in $keysToClear) {
+                if ($cfg.PSObject.Properties[$key]) {
+                    $cfg.PSObject.Properties.Remove($key)
+                    $changed = $true
+                }
+            }
+            if ($changed) {
+                $cfg | ConvertTo-Json -Depth 5 | Set-Content $cfgPath -Encoding UTF8
+                Write-Host "  Cleared OAuth session from config.json" -ForegroundColor DarkGray
+            }
+        } catch { }
+    }
+
+    $coworkPath = Join-Path $base "cowork-enabled-cli-ops.json"
+    if (Test-Path $coworkPath) {
+        Remove-Item $coworkPath -Force
+        Write-Host "  Removed cowork session file" -ForegroundColor DarkGray
+    }
+
+    $antDidPath = Join-Path $base "ant-did"
+    if (Test-Path $antDidPath) {
+        Remove-Item $antDidPath -Force
+        Write-Host "  Removed device identity file" -ForegroundColor DarkGray
+    }
+
+    $mainCfgPath = Join-Path $base "claude_desktop_config.json"
+    if (Test-Path $mainCfgPath) {
+        try {
+            $mainCfg = Get-Content $mainCfgPath -Raw | ConvertFrom-Json
+            $changed = $false
+            $deployKeys = @("deploymentMode", "enterpriseConfig", "deployment_mode", "enterprise_config")
+            foreach ($key in $deployKeys) {
+                if ($mainCfg.PSObject.Properties[$key]) {
+                    $mainCfg.PSObject.Properties.Remove($key)
+                    $changed = $true
+                }
+            }
+            if ($changed) {
+                $mainCfg | ConvertTo-Json -Depth 5 | Set-Content $mainCfgPath -Encoding UTF8
+                Write-Host "  Cleared prior deployment config" -ForegroundColor DarkGray
+            }
+        } catch { }
+    }
 }
 
 function Launch-ClaudeDesktop {

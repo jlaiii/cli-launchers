@@ -264,16 +264,97 @@ launch_claude_desktop() {
     require_key || return
     local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
 
+    # Map DeepSeek model to a Claude model name that passes the whitelist.
+    # DeepSeek's /anthropic endpoint auto-maps:
+    #   claude-opus*              -> deepseek-v4-pro
+    #   claude-sonnet* / haiku*   -> deepseek-v4-flash
+    local claude_model="claude-sonnet-4-6"
+    case "$model" in
+        deepseek-v4-pro*)   claude_model="claude-opus-4-7" ;;
+        deepseek-v4-flash*)  claude_model="claude-sonnet-4-6" ;;
+    esac
+
+    # Kill any running Claude Desktop (GUI .app only, not CLI) so it starts fresh
+    echo -e "\n${CLR_CYAN}Preparing Claude Desktop for third-party mode...${CLR_RESET}"
+    pkill -f "/Applications/Claude.*\.app/Contents/MacOS/Claude" 2>/dev/null || true
+    sleep 2
+
+    # Clear OAuth session so Claude Desktop reads the 3p config instead of auto-login
+    local claude_cfg="$HOME/Library/Application Support/Claude/config.json"
+    if [[ -f "$claude_cfg" ]]; then
+        python3 -c "
+import json, os
+try:
+ with open('$claude_cfg') as f: d=json.load(f)
+ d.pop('oauth:tokenCache', None)
+ with open('$claude_cfg','w') as f: json.dump(d, f, indent=2)
+except: pass" 2>/dev/null
+        echo -e "${CLR_GRAY}  Cleared OAuth session${CLR_RESET}"
+    fi
+
+    # Write 3p config to configLibrary (primary method for modern Claude Desktop)
+    local api_key; api_key="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
+    local config_id; config_id=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
+    local lib_dir="$HOME/Library/Application Support/Claude-3p/configLibrary"
+    mkdir -p "$lib_dir"
+
+    python3 -c "
+import json, os
+lib = '$lib_dir'
+cid = '$config_id'
+models = ['$claude_model', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
+models = list(dict.fromkeys(models))
+
+meta = {'appliedId': cid, 'entries': [{'id': cid, 'name': 'DeepSeek Gateway'}]}
+with open(os.path.join(lib, '_meta.json'), 'w') as f:
+    json.dump(meta, f, indent=2)
+
+config = {
+    'inferenceProvider': 'gateway',
+    'inferenceGatewayBaseUrl': 'https://api.deepseek.com/anthropic',
+    'inferenceGatewayApiKey': '$api_key',
+    'inferenceGatewayAuthScheme': 'bearer',
+    'inferenceModels': models,
+    'disableEssentialTelemetry': True,
+    'disableNonessentialTelemetry': True,
+    'disableNonessentialServices': True,
+    'unstableDisableModelVerification': True
+}
+with open(os.path.join(lib, cid + '.json'), 'w') as f:
+    json.dump(config, f, indent=2)
+
+# Also write claude_desktop_config.json (legacy compat)
+config3p = {
+    'deploymentMode': '3p',
+    'enterpriseConfig': {k: v for k, v in config.items() if k != 'unstableDisableModelVerification'},
+    'preferences': {
+        'secureVmFeaturesEnabled': True,
+        'coworkScheduledTasksEnabled': True,
+        'ccdScheduledTasksEnabled': True,
+        'sidebarMode': 'epitaxy',
+        'coworkWebSearchEnabled': True
+    }
+}
+paths3p = [
+    os.path.join(os.path.expanduser('~/Library/Application Support/Claude-3p'), 'claude_desktop_config.json'),
+]
+for p in paths3p:
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, 'w') as f:
+        json.dump(config3p, f, indent=2)
+" 2>/dev/null
+    echo -e "${CLR_GRAY}  Wrote 3p config (configLibrary + claude_desktop_config.json)${CLR_RESET}"
+
     export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
-    export ANTHROPIC_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-    export ANTHROPIC_CUSTOM_MODEL_OPTION="$model"
-    export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="DeepSeek ($model)"
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="$model"
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="$model"
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$model"
+    export ANTHROPIC_API_KEY="$api_key"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="$claude_model"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="$claude_model"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$claude_model"
     export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
 
     echo -e "\n${CLR_GREEN}Launching Claude Code Desktop with DeepSeek: $model${CLR_RESET}"
+    echo -e "${CLR_GRAY}  (using Claude model name '$claude_model' for compatibility)${CLR_RESET}"
+    echo -e "${CLR_CYAN}  Look for 'Continue with Gateway' on the sign-in screen${CLR_RESET}"
     open -a Claude 2>/dev/null || open -a "Claude Code" 2>/dev/null || {
         echo -e "${CLR_RED}Claude Desktop not found. Install from https://claude.ai/download${CLR_RESET}"
         read -rp "Press Enter" || true

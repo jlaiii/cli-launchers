@@ -442,7 +442,7 @@
             <div class="card" id="download-ollama">
                 <div class="badge">Ollama Provider</div>
                 <h2>Ollama Launcher</h2>
-                <p>Launch <strong>Codex CLI</strong>, <strong>Claude Code</strong>, or <strong>Codex App</strong> through Ollama. Browse cloud and local models, pull models, toggle permissions &mdash; all from one menu.</p>
+                <p>Launch <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>Codex App</strong>, or <strong>Claude Desktop</strong> through Ollama. Browse cloud and local models, pull models, toggle permissions &mdash; all from one menu.</p>
                 <div class="download-group">
                     <a class="download-btn" href="Ollama-Launcher.bat" download="Ollama-Launcher.bat">
                         <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
@@ -469,7 +469,7 @@
             <div class="card" id="download-deepseek">
                 <div class="badge">DeepSeek API Provider</div>
                 <h2>DeepSeek Launcher</h2>
-                <p>Launch <strong>Codex CLI</strong>, <strong>Claude Code</strong>, or <strong>Codex App</strong> through the DeepSeek API. Bring your own API key, pick V4 Pro or Flash, and go.</p>
+                <p>Launch <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>Codex App</strong>, or <strong>Claude Desktop</strong> through the DeepSeek API. Bring your own API key, pick V4 Pro or Flash, and go.</p>
                 <div class="download-group">
                     <a class="download-btn" href="DeepSeek-Launcher.bat" download="DeepSeek-Launcher.bat">
                         <svg viewBox="0 0 16 16"><path d="M8.47 10.78a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 1.06-1.06L7.5 8.69V1.75a.75.75 0 0 1 1.5 0v6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L8.47 10.78zM1.75 10.5a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75z"/></svg>
@@ -499,8 +499,8 @@
             <h2>What is this?</h2>
             <p>Here's the deal: <strong>Claude Code</strong> and <strong>Codex</strong> are some of the best AI coding tools on the market. But their default API pricing adds up fast. These launchers let you <strong>pick a powerful model</strong> &mdash; like DeepSeek V4 Pro &mdash; pair it with the same tools, and get <strong>the same results for up to 90% less</strong>.</p>
             <p><strong>Same tools. Same workflow. Same quality.</strong> Just a different model behind the scenes. Bring your own API key from DeepSeek or use Ollama, and you're coding with top-tier AI at a fraction of the cost. No lock-in, no markup, no compromises.</p>
-            <p>The <strong>Ollama Launcher</strong> runs <strong>Codex CLI</strong>, <strong>Claude Code</strong>, and <strong>Codex App</strong> through Ollama. Browse cloud/local models, pull models, check sign-in &mdash; one menu. Perfect for running local models or Ollama cloud models.</p>
-            <p>The <strong>DeepSeek Launcher</strong> runs <strong>Codex CLI</strong>, <strong>Claude Code</strong>, and <strong>Codex App</strong> through your DeepSeek API key. Set your key, pick V4 Pro or Flash, launch any tool. DeepSeek's flagship models rival the top-tier providers at a fraction of the cost.</p>
+            <p>The <strong>Ollama Launcher</strong> runs <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>Codex App</strong>, and <strong>Claude Desktop</strong> through Ollama. Browse cloud/local models, pull models, check sign-in &mdash; one menu. Perfect for running local models or Ollama cloud models. Claude Desktop support auto-configures 3p gateway mode so you can skip the Anthropic login.</p>
+            <p>The <strong>DeepSeek Launcher</strong> runs <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>Codex App</strong>, and <strong>Claude Desktop</strong> through your DeepSeek API key. Set your key, pick V4 Pro or Flash, launch any tool. DeepSeek's flagship models rival the top-tier providers at a fraction of the cost. Claude Desktop launches in 3p gateway mode with your DeepSeek API key &mdash; no Anthropic account needed.</p>
             <p>No manual installs, no config file wrestling. Download one file &mdash; a <code>.bat</code> for Windows or a <code>.command</code> for macOS &mdash; run it, and the launcher handles everything: prerequisites, installs, updates, model selection, and launch.</p>
         </div>
 
@@ -536,6 +536,10 @@
                     <p>Same smooth experience on Windows and macOS. One codebase, two native wrappers.</p>
                 </div>
                 <div class="feature">
+                    <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span> Claude Desktop</h3>
+                    <p>Auto-configures 3p gateway mode for Claude Desktop on Windows and macOS. Developer mode, config files, and session clearing &mdash; all handled for you.</p>
+                </div>
+                <div class="feature">
                     <h3><span class="icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg></span> One-Click Launch</h3>
                     <p>Builds the right command and starts the Ollama server automatically if needed.</p>
                 </div>
@@ -550,8 +554,8 @@
                     <strong>macOS:</strong> Right-click the <code>.command</code> file and choose <strong>Open</strong> (required the first time because it was downloaded from the web), or run it from Terminal.</li>
                 <li>The launcher shows a status screen and menu. Pick an option by typing the number and pressing <code>Enter</code>.</li>
                 <li>To <strong>launch directly</strong> without the menu, pass the tool name:<br>
-                    <strong>Ollama Launcher:</strong> <code>Ollama-Launcher.bat codex</code>, <code>Ollama-Launcher.bat claude</code>, or <code>Ollama-Launcher.bat codex-app</code><br>
-                    <strong>DeepSeek Launcher:</strong> <code>DeepSeek-Launcher.bat codex</code>, <code>DeepSeek-Launcher.bat claude</code>, or <code>DeepSeek-Launcher.bat codex-app</code><br>
+                    <strong>Ollama Launcher:</strong> <code>Ollama-Launcher.bat codex</code>, <code>Ollama-Launcher.bat claude</code>, <code>Ollama-Launcher.bat codex-app</code>, or <code>Ollama-Launcher.bat claude-desktop</code><br>
+                    <strong>DeepSeek Launcher:</strong> <code>DeepSeek-Launcher.bat codex</code>, <code>DeepSeek-Launcher.bat claude</code>, <code>DeepSeek-Launcher.bat codex-app</code>, or <code>DeepSeek-Launcher.bat claude-desktop</code><br>
                     macOS: add <code>./</code> prefix and use <code>.command</code> instead of <code>.bat</code>
                 </li>
             </ol>
