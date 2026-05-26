@@ -250,41 +250,17 @@ launch_codex_app() {
     require_key || return
     command -v codex &>/dev/null || { echo -e "${CLR_YELLOW}Codex CLI not installed.${CLR_RESET}"; ask "Install? (y/n) " a; [[ "$(lc "$a")" == "y" ]] && install_codex || return; }
     local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
-    local codexHome="$HOME/.codex"
-    mkdir -p "$codexHome"
-    # Move aside all state files that could override our DeepSeek config
-    local -a stateFiles=("config.toml" "auth.json" "ollama-launch-models.json" ".codex-global-state.json")
-    local -a backups=()
-    for fn in "${stateFiles[@]}"; do
-        local path="$codexHome/$fn"
-        if [[ -f "$path" ]]; then
-            mv "$path" "$path.cli-launcher-backup"
-            backups+=("$path")
-        fi
-    done
-
-    cat > "$codexHome/config.toml" << TOML
-model = "$model"
-model_provider = "deepseek"
-model_reasoning_effort = "high"
-wire_api = "chat"
-
-[model_providers.deepseek]
-name = "DeepSeek"
-base_url = "https://api.deepseek.com/v1"
-env_key = "DEEPSEEK_API_KEY"
-TOML
     export DEEPSEEK_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-    local -a cmd=("codex" "app")
+
+    # Use -c overrides (highest precedence) -- no file manipulation needed
+    local -a cmd=("codex" "app"
+        "-c" "model_provider=deepseek"
+        "-c" "model=$model"
+        "-c" "model_reasoning_effort=high"
+        "-c" "wire_api=chat")
     clear
     echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
     "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
-
-    # Restore all state files
-    for path in "${backups[@]}"; do
-        mv "$path.cli-launcher-backup" "$path"
-    done
-    rm -f "$codexHome/config.toml.cli-launcher-backup"
     read -rp "Session ended. Press Enter" || true
 }
 

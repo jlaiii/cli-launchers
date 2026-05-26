@@ -344,43 +344,18 @@ function Launch-CodexApp {
         if (-not (Install-CodexCLI)) { return }
     }
     $cfg = Get-Config
-    $codexHome = Join-Path $env:USERPROFILE ".codex"
-    if (-not (Test-Path $codexHome)) { New-Item -ItemType Directory -Force -Path $codexHome | Out-Null }
 
-    # Move aside all state files that could override our DeepSeek config.
-    # ollama launch codex-app creates ollama-launch-models.json which persists
-    # provider selection even if config.toml is replaced.
-    $backups = @()
-    $stateFiles = @(
-        "config.toml",
-        "auth.json",
-        "ollama-launch-models.json",
-        ".codex-global-state.json"
-    )
-    foreach ($fn in $stateFiles) {
-        $path = Join-Path $codexHome $fn
-        if (Test-Path $path) {
-            $backupPath = "$path.cli-launcher-backup"
-            Move-Item $path $backupPath -Force
-            $backups += @{ Original = $path; Backup = $backupPath }
-        }
-    }
-
-    $toml = @"
-model = "$($cfg.deepseekModel)"
-model_provider = "deepseek"
-model_reasoning_effort = "high"
-wire_api = "chat"
-
-[model_providers.deepseek]
-name = "DeepSeek"
-base_url = "https://api.deepseek.com/v1"
-env_key = "DEEPSEEK_API_KEY"
-"@
-    Set-Content -LiteralPath (Join-Path $codexHome "config.toml") -Value $toml -Encoding UTF8
+    # Use -c overrides (highest precedence in Codex config) so we don't
+    # need to touch any config files or fight with cached ollama state.
     $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
 
-    $cmdParts = @("codex", "app")
+    $cmdParts = @(
+        "codex", "app",
+        "-c", "model_provider=deepseek",
+        "-c", "model=$($cfg.deepseekModel)",
+        "-c", "model_reasoning_effort=high",
+        "-c", "wire_api=chat"
+    )
     $cmdString = $cmdParts -join ' '
     Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
@@ -390,18 +365,6 @@ env_key = "DEEPSEEK_API_KEY"
         & $cmdParts[0] @cmdArgs
         if ($LASTEXITCODE -ne 0) { Write-Host "Codex App exited with code $LASTEXITCODE." -ForegroundColor Yellow }
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-
-    # Restore all state files
-    foreach ($b in $backups) {
-        Move-Item $b.Backup $b.Original -Force
-    }
-    # Clean up our generated config if no original existed
-    $genConfig = Join-Path $codexHome "config.toml"
-    if (Test-Path $genConfig) {
-        $wasBackedUp = $false
-        foreach ($b in $backups) { if ($b.Original -eq $genConfig) { $wasBackedUp = $true } }
-        if (-not $wasBackedUp) { Remove-Item $genConfig -Force -ErrorAction SilentlyContinue }
-    }
     Read-Host "Session ended. Press Enter to return to menu"
 }
 
