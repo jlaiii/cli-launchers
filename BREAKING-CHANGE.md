@@ -77,12 +77,19 @@ This error appears on the **second** API call in a multi-turn conversation (e.g.
 
 ## Conclusion
 
-This appears to be an intentional change by Anthropic. Extended thinking requires cryptographic signature validation that only Anthropic's own API infrastructure can perform. By making thinking mandatory and the documented disable flags non-functional, Claude Code v2.1.153+ is effectively locked to Anthropic's official API.
+This appears to be a **genuine bug** in Claude Code v2.1.152+ rather than an intentional proxy-lock. Evidence:
 
-Third-party proxies cannot replicate the thinking signature protocol because:
-1. The thinking content is tied to Anthropic's internal model infrastructure
-2. The signature scheme is proprietary and tied to Anthropic's API keys
-3. Even if a proxy could generate valid thinking content, it would need Anthropic's signing keys
+1. The exact same 400 error occurs on the **official Anthropic API** during long conversations (Issue #62756)
+2. It also manifests on **gateway proxies** (Issue #61348, DeepSeek, etc.)
+3. The `CLAUDE_CODE_DISABLE_THINKING` env var is documented but non-functional — likely a regression, not intentional
+4. The deprecated `thinking.type.enabled` format bug in Issue #61348 is explicitly a bug (Windows works, Mac doesn't)
+
+However, the impact is more severe through third-party proxies because:
+- Anthropic's official API has working thinking signatures (the bug is intermittent)
+- Third-party proxies can't generate valid signatures at all (the bug is permanent)
+- This makes the thinking protocol fundamentally incompatible with any non-Anthropic endpoint
+
+Whether intentional or not, the practical effect is that Claude Code v2.1.153+ is effectively locked to Anthropic's API for reliable tool-based conversations.
 
 ---
 
@@ -107,26 +114,34 @@ claude install 2.1.143
 
 ## Affected Providers
 
-Tested and confirmed broken:
-- ✅ DeepSeek (`api.deepseek.com/anthropic`)
-- ❓ OpenRouter (likely same issue)
-- ❓ Any other Anthropic-compatible proxy endpoint
+| Provider | Status | Notes |
+|----------|--------|-------|
+| Anthropic Official API | ⚠️ Intermittent | Same 400 error reported in long conversations with tool use (Issue #62756) |
+| DeepSeek `/anthropic` | ❌ Broken | Returns malformed thinking blocks with garbled content + invalid signatures |
+| OpenRouter | ❌ Likely broken | Same protocol incompatibility — any proxy that doesn't properly implement Anthropic's thinking signature protocol |
+| Any Anthropic-compatible proxy | ❌ Broken | Cannot replicate proprietary thinking signature validation |
 
-Works with:
-- ✅ Anthropic official API (requires Anthropic API key or subscription)
+**Key finding:** This is NOT purely a proxy-targeting change. The bug also affects official Anthropic API users on long conversations (reported in [Issue #62756](https://github.com/anthropics/claude-code/issues/62756)). The thinking feature appears to have inherent bugs in v2.1.152+ that manifest more severely through third-party proxies.
+
+## Related Issues on GitHub
+
+- **[#62756](https://github.com/anthropics/claude-code/issues/62756)** — Same error on official Anthropic API (Windows 10, v2.1.152, VS Code). "The error appears randomly, sometimes multiple times per session... makes long sessions frustrating and unreliable." Opened May 27, 2026.
+- **[#61348](https://github.com/anthropics/claude-code/issues/61348)** — Claude for Mac sends deprecated `thinking.type.enabled` (should be `thinking.type.adaptive`) for Opus 4.7, causing 400 errors through gateway proxies. Opened May 22, 2026.
+- **[#59536](https://github.com/anthropics/claude-code/issues/59536)** — Feature request for per-model beta-feature opt-out for proxy/gateway-routed deployments (closed as duplicate).
 
 ---
 
 ## What Needs to Happen
 
-For this to work with third-party proxies, one of these must occur:
+Since this also affects official API users, Anthropic is likely to fix it. The possible resolution paths:
 
-1. **Anthropic** makes `CLAUDE_CODE_DISABLE_THINKING=1` functional again in a future release
-2. **Anthropic** makes extended thinking opt-in (not default-on)
-3. **DeepSeek** fixes their `/anthropic` endpoint to properly support the thinking protocol (unlikely — it's tied to Anthropic's proprietary infrastructure)
-4. **DeepSeek** properly handles `thinking: {type: "disabled"}` and stops returning thinking blocks
+1. **Most likely**: Anthropic fixes the thinking block handling bug — this benefits both official API and proxy users
+2. **Possible**: Anthropic makes `CLAUDE_CODE_DISABLE_THINKING=1` functional again
+3. **Unlikely**: Anthropic makes extended thinking opt-in instead of default-on
+4. **Unlikely**: DeepSeek implements proper thinking signature protocol
+5. **Unlikely**: Third-party proxies independently support Anthropic's thinking signature format
 
-Until one of these happens, **Claude Code v2.1.143** is the last version that works with third-party API proxies.
+**Our position**: Pin to v2.1.143 until Anthropic ships a fix. When they do, test it against DeepSeek and update `approved-versions.json`.
 
 ---
 
