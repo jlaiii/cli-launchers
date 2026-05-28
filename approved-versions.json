@@ -4,7 +4,7 @@
   "ollama_latest": "0.13.0",
   "last_updated": "2026-05-28",
   "notes": {
-    "claude_2.1.153": "BROKEN - DeepSeek /anthropic endpoint returns malformed thinking blocks causing 400 API errors",
+    "claude_2.1.153": "REQUIRES PROXY - DeepSeek /anthropic endpoint returns malformed thinking blocks. Launcher now auto-starts claude-deepseek-proxy.js to sanitize SSE stream. Simple prompts work; some tool-using prompts may still fail due to DeepSeek API edge cases.",
     "claude_2.1.152": "Not yet tested with DeepSeek proxy",
     "claude_2.1.150": "Not yet tested with DeepSeek proxy"
   }

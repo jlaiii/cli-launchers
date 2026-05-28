@@ -334,9 +334,20 @@ function Launch-CodexCLI {
 function Launch-ClaudeCode {
     if (-not (Require-ApiKey)) { return }
     $cfg = Get-Config
-    $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
+
+    # Auto-start the thinking-stripping proxy so v2.1.153+ works
+    $proxyPort = 9876
+    $proxyScript = "C:\Users\PC\Desktop\cli-launchers\claude-deepseek-proxy.js"
+    if ((Test-Path $proxyScript) -and (Get-Command "node" -ErrorAction SilentlyContinue)) {
+        $proxyRunning = Get-NetTCPConnection -LocalPort $proxyPort -ErrorAction SilentlyContinue
+        if (-not $proxyRunning) {
+            Start-Process -FilePath "node" -ArgumentList "`"$proxyScript`"" -WindowStyle Minimized
+            Start-Sleep -Seconds 1
+        }
+    }
+
+    $env:ANTHROPIC_BASE_URL = "http://localhost:$proxyPort/anthropic"
     $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
-    $env:CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = "1"
     $env:DISABLE_AUTOUPDATER = "1"
 
     $cmdParts = @("claude")
