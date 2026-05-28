@@ -61,6 +61,7 @@ function Get-VersionCache {
         codexLatestVersion  = ""; codexLastChecked  = ""
         claudeLatestVersion = ""; claudeLastChecked = ""
         ollamaLatestVersion = ""; ollamaLastChecked = ""
+        approvedLastChecked = ""; codexApproved = ""; claudeApproved = ""; ollamaApproved = ""
     }
     if (Test-Path $script:VersionCache) {
         try {
@@ -103,6 +104,24 @@ function Compare-Versions($installed, $latest) {
     } catch { return $null }
 }
 
+function Get-ApprovedVersions {
+    $cache = Get-VersionCache
+    if (-not (Is-CacheStale $cache.approvedLastChecked)) {
+        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved; ollama = $cache.ollamaApproved }
+    }
+    try {
+        $resp = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jlaiii/cli-launchers/main/approved-versions.json" -UseBasicParsing -TimeoutSec 15
+        $data = $resp.Content | ConvertFrom-Json
+        $cache.codexApproved = $data.codex_latest
+        $cache.claudeApproved = $data.claude_latest
+        $cache.ollamaApproved = $data.ollama_latest
+        $cache.approvedLastChecked = [datetime]::Now.ToString("o")
+        Save-VersionCache $cache
+        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved; ollama = $cache.ollamaApproved }
+    } catch { }
+    return $null
+}
+
 # ============================================
 # Version Checkers
 # ============================================
@@ -115,6 +134,8 @@ function Get-CodexInstalledVersion {
 }
 
 function Get-CodexLatestVersion {
+    $approved = Get-ApprovedVersions
+    if ($approved -and $approved.codex) { return $approved.codex }
     $cache = Get-VersionCache
     if (-not (Is-CacheStale $cache.codexLastChecked)) { return $cache.codexLatestVersion }
     try {
@@ -139,6 +160,8 @@ function Get-ClaudeInstalledVersion {
 }
 
 function Get-ClaudeLatestVersion {
+    $approved = Get-ApprovedVersions
+    if ($approved -and $approved.claude) { return $approved.claude }
     $cache = Get-VersionCache
     if (-not (Is-CacheStale $cache.claudeLastChecked)) { return $cache.claudeLatestVersion }
     try {
@@ -163,6 +186,8 @@ function Get-OllamaInstalledVersion {
 }
 
 function Get-OllamaLatestVersion {
+    $approved = Get-ApprovedVersions
+    if ($approved -and $approved.ollama) { return $approved.ollama }
     $cache = Get-VersionCache
     if (-not (Is-CacheStale $cache.ollamaLastChecked)) { return $cache.ollamaLatestVersion }
     try {
@@ -953,7 +978,7 @@ while ($true) {
         "8" { Check-OllamaSignin }
         "9" {
             $cache = Get-VersionCache
-            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""
+            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""; $cache.approvedLastChecked = ""
             Save-VersionCache $cache
             Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
         }

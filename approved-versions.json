@@ -1,0 +1,11 @@
+{
+  "codex_latest": "0.134.0",
+  "claude_latest": "2.1.143",
+  "ollama_latest": "0.13.0",
+  "last_updated": "2026-05-28",
+  "notes": {
+    "claude_2.1.153": "BROKEN - DeepSeek /anthropic endpoint returns malformed thinking blocks causing 400 API errors",
+    "claude_2.1.152": "Not yet tested with DeepSeek proxy",
+    "claude_2.1.150": "Not yet tested with DeepSeek proxy"
+  }
+}

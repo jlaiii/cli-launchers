@@ -69,6 +69,7 @@ function Get-VersionCache {
     $defaultCache = @{
         codexLatestVersion  = ""; codexLastChecked  = ""
         claudeLatestVersion = ""; claudeLastChecked = ""
+        approvedLastChecked = ""; codexApproved = ""; claudeApproved = ""
     }
     if (Test-Path $script:VersionCache) {
         try {
@@ -109,6 +110,23 @@ function Compare-Versions($installed, $latest) {
     try { return ([version]$latest -gt [version]$installed) } catch { return $null }
 }
 
+function Get-ApprovedVersions {
+    $cache = Get-VersionCache
+    if (-not (Is-CacheStale $cache.approvedLastChecked)) {
+        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved }
+    }
+    try {
+        $resp = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jlaiii/cli-launchers/main/approved-versions.json" -UseBasicParsing -TimeoutSec 15
+        $data = $resp.Content | ConvertFrom-Json
+        $cache.codexApproved = $data.codex_latest
+        $cache.claudeApproved = $data.claude_latest
+        $cache.approvedLastChecked = [datetime]::Now.ToString("o")
+        Save-VersionCache $cache
+        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved }
+    } catch { }
+    return $null
+}
+
 # ============================================
 # Version Checkers (Codex + Claude only)
 # ============================================
@@ -121,6 +139,8 @@ function Get-CodexInstalledVersion {
 }
 
 function Get-CodexLatestVersion {
+    $approved = Get-ApprovedVersions
+    if ($approved -and $approved.codex) { return $approved.codex }
     $cache = Get-VersionCache
     if (-not (Is-CacheStale $cache.codexLastChecked)) { return $cache.codexLatestVersion }
     try {
@@ -145,6 +165,8 @@ function Get-ClaudeInstalledVersion {
 }
 
 function Get-ClaudeLatestVersion {
+    $approved = Get-ApprovedVersions
+    if ($approved -and $approved.claude) { return $approved.claude }
     $cache = Get-VersionCache
     if (-not (Is-CacheStale $cache.claudeLastChecked)) { return $cache.claudeLatestVersion }
     try {
@@ -323,6 +345,8 @@ function Launch-ClaudeCode {
     $cfg = Get-Config
     $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
     $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
+    $env:CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = "1"
+    $env:DISABLE_AUTOUPDATER = "1"
 
     $cmdParts = @("claude")
     if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
@@ -857,7 +881,7 @@ while ($true) {
         }
         "c" {
             $cache = Get-VersionCache
-            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""
+            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.approvedLastChecked = ""
             Save-VersionCache $cache
             Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
         }
