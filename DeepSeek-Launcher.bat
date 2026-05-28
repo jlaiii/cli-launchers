@@ -231,10 +231,34 @@ function Install-CodexCLI {
 }
 
 function Install-ClaudeCode {
-    Write-Host "Installing/Updating Claude Code..." -ForegroundColor Cyan
+    param([string]$Version)
+    if (-not $Version) {
+        $approved = Get-ApprovedVersions
+        $Version = if ($approved -and $approved.claude) { $approved.claude } else { "" }
+    }
+    if (-not $Version) { Write-Host "No approved version found." -ForegroundColor Red; Read-Host "Press Enter to continue"; return }
+
+    Write-Host "Installing Claude Code v$Version (approved version)..." -ForegroundColor Cyan
     try {
-        irm https://claude.ai/install.ps1 | iex
-        Write-Host "Claude Code installation complete." -ForegroundColor Green
+        if (Test-CommandExists "claude") {
+            & claude install $Version 2>&1 | Out-Null
+        } else {
+            # First-time install via npm, then pin version
+            if (-not (Test-CommandExists "npm")) {
+                $ans = Read-Host "Node.js/npm required. Install now? (y/n)"
+                if ($ans -ne 'y') { return }
+                if (-not (Install-NodeJS)) { return }
+            }
+            npm install -g @anthropic-ai/claude-code 2>&1 | Out-Null
+            Start-Sleep -Seconds 3
+            & claude install $Version 2>&1 | Out-Null
+        }
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Claude Code v$Version installed." -ForegroundColor Green
+        } else {
+            Write-Host "Installation may have failed. Check logs." -ForegroundColor Yellow
+            irm https://claude.ai/install.ps1 | iex
+        }
     } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
     Read-Host "Press Enter to continue"
 }
@@ -343,19 +367,7 @@ function Launch-CodexCLI {
 function Launch-ClaudeCode {
     if (-not (Require-ApiKey)) { return }
     $cfg = Get-Config
-
-    # Auto-start the thinking-stripping proxy so v2.1.153+ works
-    $proxyPort = 9876
-    $proxyScript = "C:\Users\PC\Desktop\cli-launchers\claude-deepseek-proxy.js"
-    if ((Test-Path $proxyScript) -and (Get-Command "node" -ErrorAction SilentlyContinue)) {
-        $proxyRunning = Get-NetTCPConnection -LocalPort $proxyPort -ErrorAction SilentlyContinue
-        if (-not $proxyRunning) {
-            Start-Process -FilePath "node" -ArgumentList "`"$proxyScript`"" -WindowStyle Minimized
-            Start-Sleep -Seconds 1
-        }
-    }
-
-    $env:ANTHROPIC_BASE_URL = "http://localhost:$proxyPort/anthropic"
+    $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
     $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
     $env:DISABLE_AUTOUPDATER = "1"
 
@@ -707,29 +719,39 @@ function Show-Status {
     $cCodex  = Test-CommandExists "codex"
     $cClaude = Test-CommandExists "claude"
     $cfg     = Get-Config
+    $approved = Get-ApprovedVersions
 
     Write-Host "`n========== DeepSeek CLI Launcher ==========" -ForegroundColor Cyan
     if ($cCodex) {
         $inst = Get-CodexInstalledVersion
-        $lat  = Get-CodexLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-            Write-Host "  Codex CLI     : v$inst (update v$lat available)" -ForegroundColor Yellow
-        } else {
+        $appr = if ($approved) { $approved.codex } else { $null }
+        if ($appr -and $inst -and (Compare-Versions $inst $appr)) {
+            Write-Host "  Codex CLI     : v$inst (approved: v$appr - UPDATE AVAILABLE)" -ForegroundColor Yellow
+        } elseif ($inst) {
             Write-Host "  Codex CLI     : v$inst (up to date)" -ForegroundColor Green
+        } else {
+            Write-Host "  Codex CLI     : v$inst" -ForegroundColor Green
         }
     } else {
         Write-Host "  Codex CLI     : NOT INSTALLED" -ForegroundColor DarkGray
     }
     if ($cClaude) {
         $inst = Get-ClaudeInstalledVersion
-        $lat  = Get-ClaudeLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-            Write-Host "  Claude Code   : v$inst (update v$lat available)" -ForegroundColor Yellow
+        $appr = if ($approved) { $approved.claude } else { $null }
+        if ($appr -and $inst -and (Compare-Versions $inst $appr)) {
+            Write-Host "  Claude Code   : v$inst !UNSAFE! (approved: v$appr)" -ForegroundColor Red
+            Write-Host "                 This version may have API errors with DeepSeek." -ForegroundColor Red
+            Write-Host "                 Use option 2 to install the approved version." -ForegroundColor Yellow
+        } elseif ($appr -and $inst -and (Compare-Versions $appr $inst)) {
+            Write-Host "  Claude Code   : v$inst (approved: v$appr - update available)" -ForegroundColor Yellow
+        } elseif ($inst) {
+            Write-Host "  Claude Code   : v$inst (approved)" -ForegroundColor Green
         } else {
-            Write-Host "  Claude Code   : v$inst (up to date)" -ForegroundColor Green
+            Write-Host "  Claude Code   : v$inst" -ForegroundColor Green
         }
     } else {
         Write-Host "  Claude Code   : NOT INSTALLED" -ForegroundColor DarkGray
+    }
     }
     Write-Host "  DeepSeek Model: $($cfg.deepseekModel)" -ForegroundColor Cyan
     if ($cfg.deepseekApiKey) {
@@ -757,17 +779,10 @@ function Show-MainMenu {
     $cCodex  = Test-CommandExists "codex"
     $cClaude = Test-CommandExists "claude"
     $cfg     = Get-Config
+    $approved = Get-ApprovedVersions
 
     Write-Host "`n[1] Install / Update Codex CLI (needed for Codex + Codex App)" -ForegroundColor White
-    if ($cCodex) {
-        $inst = Get-CodexInstalledVersion; $lat = Get-CodexLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
-    }
     Write-Host "[2] Install / Update Claude Code" -ForegroundColor White
-    if ($cClaude) {
-        $inst = Get-ClaudeInstalledVersion; $lat = Get-ClaudeLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
-    }
     Write-Host "[3] Pick DeepSeek Model [current: $($cfg.deepseekModel)]" -ForegroundColor White
     Write-Host "[4] Set DeepSeek API Key" -ForegroundColor White
     if ($cCodex -and $cfg.deepseekApiKey) {
@@ -828,14 +843,20 @@ while ($true) {
     $cfg = Get-Config
     switch ($choice.ToLower()) {
         "1" {
+            $approved = Get-ApprovedVersions
+            $approvedVer = if ($approved -and $approved.codex) { $approved.codex } else { $null }
             if (Test-CommandExists "codex") {
-                $inst = Get-CodexInstalledVersion; $lat = Get-CodexLatestVersion
-                if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-                    Write-Host "Codex update: v$inst -> v$lat" -ForegroundColor Yellow
+                $inst = Get-CodexInstalledVersion
+                if ($approvedVer -and $inst -and (Compare-Versions $inst $approvedVer)) {
+                    Write-Host "Codex CLI update: v$inst -> v$approvedVer (approved)" -ForegroundColor Yellow
+                    $ans = Read-Host "Update now? (y/n)"
+                    if ($ans -eq 'y') { Install-CodexCLI }
+                } elseif ($approvedVer -and $inst -and (Compare-Versions $approvedVer $inst)) {
+                    Write-Host "Approved update: v$inst -> v$approvedVer" -ForegroundColor Yellow
                     $ans = Read-Host "Update now? (y/n)"
                     if ($ans -eq 'y') { Install-CodexCLI }
                 } else {
-                    $ans = Read-Host "Codex CLI is up to date. Reinstall? (y/n)"
+                    $ans = Read-Host "Codex CLI v$inst is current. Reinstall? (y/n)"
                     if ($ans -eq 'y') { Install-CodexCLI }
                 }
             } else {
@@ -845,18 +866,26 @@ while ($true) {
             Read-Host "Press Enter to continue"
         }
         "2" {
+            $approved = Get-ApprovedVersions
+            $approvedVer = if ($approved -and $approved.claude) { $approved.claude } else { $null }
             if (Test-CommandExists "claude") {
-                $inst = Get-ClaudeInstalledVersion; $lat = Get-ClaudeLatestVersion
-                if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-                    Write-Host "Claude Code update: v$inst -> v$lat" -ForegroundColor Yellow
+                $inst = Get-ClaudeInstalledVersion
+                if ($approvedVer -and $inst -and (Compare-Versions $inst $approvedVer)) {
+                    Write-Host "Your Claude Code v$inst is NOT the approved version (v$approvedVer)." -ForegroundColor Red
+                    Write-Host "Newer versions may have API errors with DeepSeek." -ForegroundColor Red
+                    $ans = Read-Host "Install approved v$approvedVer now? (y/n)"
+                    if ($ans -eq 'y') { Install-ClaudeCode -Version $approvedVer }
+                } elseif ($approvedVer -and $inst -and (Compare-Versions $approvedVer $inst)) {
+                    Write-Host "Approved update available: v$inst -> v$approvedVer" -ForegroundColor Yellow
                     $ans = Read-Host "Update now? (y/n)"
-                    if ($ans -eq 'y') { Install-ClaudeCode }
+                    if ($ans -eq 'y') { Install-ClaudeCode -Version $approvedVer }
                 } else {
-                    $ans = Read-Host "Claude Code is up to date. Reinstall? (y/n)"
-                    if ($ans -eq 'y') { Install-ClaudeCode }
+                    Write-Host "Claude Code v$inst is the approved version." -ForegroundColor Green
+                    $ans = Read-Host "Reinstall? (y/n)"
+                    if ($ans -eq 'y') { Install-ClaudeCode -Version $approvedVer }
                 }
             } else {
-                $ans = Read-Host "Install Claude Code now? (y/n)"
+                $ans = Read-Host "Install Claude Code (approved version) now? (y/n)"
                 if ($ans -eq 'y') { Install-ClaudeCode }
             }
             Read-Host "Press Enter to continue"
