@@ -752,7 +752,6 @@ function Show-Status {
     } else {
         Write-Host "  Claude Code   : NOT INSTALLED" -ForegroundColor DarkGray
     }
-    }
     Write-Host "  DeepSeek Model: $($cfg.deepseekModel)" -ForegroundColor Cyan
     if ($cfg.deepseekApiKey) {
         Write-Host "  DeepSeek Key  : SET" -ForegroundColor Green
