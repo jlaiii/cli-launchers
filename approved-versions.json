@@ -2,8 +2,11 @@
   "codex_latest": "0.134.0",
   "claude_latest": "2.1.143",
   "ollama_latest": "0.13.0",
-  "last_updated": "2026-05-28",
+  "last_updated": "2026-05-29",
   "notes": {
+    "claude_2.1.157": "Not tested. Likely broken same as v2.1.156 (system messages in messages array)",
+    "claude_2.1.156": "BROKEN with DeepSeek - sends system as role:'system' in messages array (new Anthropic format). DeepSeek only supports top-level 'system' field. 400 on turn 1 (INSTANT FAIL). Original thinking-block bug is RESOLVED on DeepSeek side.",
+    "claude_2.1.154": "Likely BROKEN - v2.1.154 changelog says system prompt moved to messages array for non-Haiku/Sonnet/Opus models. DeepSeek endpoint rejects role:'system' in messages array.",
     "claude_2.1.153": "BROKEN with DeepSeek - malformed thinking blocks cause 400 API errors on tool use. Downgrade to 2.1.143.",
     "claude_2.1.152": "Not tested",
     "claude_2.1.150": "Not tested",
