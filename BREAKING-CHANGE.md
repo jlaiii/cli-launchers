@@ -3,18 +3,27 @@
 **Date:** 2026-05-29  
 **Reporter:** jlaiii  
 **Affected:** All third-party Anthropic-compatible API proxies (DeepSeek, OpenRouter, etc.)  
-**Last tested:** v2.1.156 (BROKEN) | **Last known good:** v2.1.143
+**Last tested:** v2.1.157 (VERIFIED WORKING) | **Last known good:** v2.1.143 → upgrade to v2.1.157
 
 ---
 
 ## Summary
 
-Claude Code v2.1.153+ introduced **two separate breaking changes** that make the CLI incompatible with third-party Anthropic-compatible API endpoints. The last fully working version is **v2.1.143**.
+Claude Code v2.1.153-v2.1.156 introduced **two separate breaking changes** that made the CLI incompatible with third-party Anthropic-compatible API endpoints. **v2.1.157 resolves both issues.**
 
 | Version | Issue | Status |
 |---------|-------|--------|
-| v2.1.153 | Thinking blocks with garbled binary data → 400 on turn 2 | DeepSeek side FIXED ✓ |
-| v2.1.154+ | System as `role:"system"` in messages array → 400 on turn 1 | STILL BROKEN ✗ |
+| v2.1.153 | Thinking blocks with garbled binary data → 400 on turn 2 | FIXED in v2.1.157 ✓ |
+| v2.1.154-156 | System as `role:"system"` in messages array → 400 on turn 1 | FIXED in v2.1.157 ✓ |
+
+## :tada: v2.1.157 VERIFIED WORKING with DeepSeek
+
+Tested 2026-05-29 on Windows 10 / PowerShell 5.1 against `https://api.deepseek.com/anthropic` with `deepseek-v4-pro`:
+- Simple prompts: **PASS** ✓
+- Tool-using prompts: **PASS** ✓ (file reads + multi-turn conversations)
+- Thinking block pass-back: **PASS** ✓ (human-readable thinking, multi-turn stable)
+
+**Recommendation: Upgrade from v2.1.143 to v2.1.157.**
 
 ---
 
@@ -161,15 +170,23 @@ However, the impact is more severe through third-party proxies because:
 
 ---
 
-## Workaround
+## Resolution
 
-**Downgrade to v2.1.143:**
+**Upgrade to v2.1.157:**
 
 ```bash
-claude install 2.1.143
+claude install 2.1.157
 ```
 
-**Prevent auto-updates:**
+This is the first version since v2.1.143 confirmed working with DeepSeek's `/anthropic` endpoint. Both the thinking block issue and the system message format issue are resolved.
+
+**If a future version breaks, downgrade to v2.1.157:**
+
+```bash
+claude install 2.1.157
+```
+
+**Prevent auto-updates (optional, if you want to stay pinned):**
 
 ```bash
 # Windows (PowerShell as admin)
@@ -199,23 +216,16 @@ claude install 2.1.143
 
 ---
 
-## What Needs to Happen
+## Resolution Status
 
-Since this also affects official API users, Anthropic is likely to fix the thinking block handling bug. The system message format is a different challenge:
+Both issues that broke DeepSeek compatibility have been resolved:
 
-1. **Most likely**: Anthropic fixes the thinking block handling bug — this benefits both official API and proxy users
-2. **Possible**: Anthropic makes `CLAUDE_CODE_DISABLE_THINKING=1` functional again
-3. **Possible**: DeepSeek adds support for `role: "system"` in the messages array (it's now part of the official Anthropic API spec)
-4. **Possible**: A proxy fix that moves system messages from the messages array to the top-level `system` field before forwarding to DeepSeek
-5. **Unlikely**: Anthropic makes extended thinking opt-in instead of default-on
-6. **Unlikely**: DeepSeek implements proper thinking signature protocol
-7. **Unlikely**: Anthropic reverts the system message format change or provides an opt-out flag
+1. **:white_check_mark: Thinking block garbled data (v2.1.153)**: DeepSeek fixed their endpoint to return human-readable thinking text. Pass-back now works.
+2. **:white_check_mark: System messages format (v2.1.154-156)**: v2.1.157 restored compatibility — system prompts are sent in a format DeepSeek accepts.
 
-**Our position**: Pin to v2.1.143 until:
-- DeepSeek supports `role: "system"` in messages array, **AND**
-- The thinking block handling is stable
+**Our position**: Upgraded to v2.1.157. Will continue to test new releases against DeepSeek.
 
-When both issues are resolved, test against DeepSeek and update `approved-versions.json`.
+## Historical: What Needs to Happen (pre-v2.1.157)
 
 ---
 
