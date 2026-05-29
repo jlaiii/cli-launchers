@@ -1,7 +1,7 @@
 {
   "codex_latest": "0.134.0",
   "claude_latest": "2.1.157",
-  "ollama_latest": "0.13.0",
+  "ollama_latest": "0.24.0",
   "last_updated": "2026-05-29",
   "notes": {
     "claude_2.1.157": "VERIFIED WORKING with DeepSeek - simple prompts, tool-using, and multi-turn conversations all pass. System message issue from v2.1.154+ appears fixed. Thinking blocks now human-readable and pass-back works. RECOMMENDED UPGRADE from v2.1.143.",
