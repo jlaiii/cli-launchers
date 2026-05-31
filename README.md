@@ -5,7 +5,7 @@ Two launchers organized by **provider**: pick Ollama or DeepSeek, and launch any
 - **Ollama Launcher** — Codex CLI + Claude Code + Codex App via Ollama
 - **DeepSeek Launcher** — Codex CLI + Claude Code + Codex App via DeepSeek API
 
-Each launcher is a single-file script (.bat / .command / .ps1). It checks prerequisites, auto-installs missing tools, keeps everything updated, and gives you a picker for models — then launches.
+Each launcher is a single-file script (.bat / .command / .ps1). At startup it **auto-updates** all tools to the latest versions from npm — fully automatic, no prompts. Then it gives you a simple menu to launch. Every operation is logged to `Documents\cli-launchers\launcher.log` for easy debugging.
 
 ## Quick Start
 
@@ -32,83 +32,98 @@ curl -fsSL https://raw.githubusercontent.com/jlaiii/cli-launchers/main/DeepSeek-
 ### Direct launch (skip the menu)
 
 ```batch
-:: Ollama Launcher
-Ollama-Launcher.bat codex            :: launch Codex CLI
-Ollama-Launcher.bat claude           :: launch Claude Code CLI
-Ollama-Launcher.bat codex-app        :: launch Codex App
-Ollama-Launcher.bat claude-desktop   :: launch Claude Desktop
-
 :: DeepSeek Launcher
+DeepSeek-Launcher.bat claude         :: launch Claude Code
 DeepSeek-Launcher.bat codex          :: launch Codex CLI
-DeepSeek-Launcher.bat claude         :: launch Claude Code CLI
 DeepSeek-Launcher.bat codex-app      :: launch Codex App
 DeepSeek-Launcher.bat claude-desktop :: launch Claude Desktop
+
+:: Ollama Launcher
+Ollama-Launcher.bat claude           :: launch Claude Code
+Ollama-Launcher.bat codex            :: launch Codex CLI
+Ollama-Launcher.bat codex-app        :: launch Codex App
+Ollama-Launcher.bat claude-desktop   :: launch Claude Desktop
 ```
 
 ---
 
-## Ollama Launcher
+## Auto-Update
 
-Launches **Codex CLI**, **Claude Code CLI**, **Codex App**, and **Claude Desktop** through Ollama. Browse cloud/local models, pull models, check sign-in — all from one menu.
+At every launch, the launcher automatically:
 
-**What it handles:**
-- Detects and auto-installs Ollama
-- Detects and auto-installs Node.js / npm (for Codex CLI)
-- Checks for updates (Ollama via GitHub releases)
-- Verifies Ollama sign-in status
-- Model browser — top 10 cloud models, local models, or manual entry
-- Auto-starts the Ollama server if not running
-- Launches via `ollama launch codex`, `ollama launch claude`, or `ollama launch codex-app`
-- Claude Code Desktop: writes 3p gateway config, auto-enables developer mode, clears OAuth session
+1. Checks npm registry for the latest versions of Claude Code (`@anthropic-ai/claude-code`) and Codex CLI (`@openai/codex`)
+2. Checks GitHub releases for the latest Ollama version (Ollama launcher only)
+3. **Auto-installs or updates** any tool that doesn't match the latest version
+4. Skips silently if offline (uses 60-minute version cache)
 
-**Menu:**
-| # | Option |
-|---|--------|
-| 1 | Install / Update Ollama |
-| 2 | Pick / Change Model (cloud / local / manual) |
-| 3 | Pull Selected Model Locally |
-| 4 | Launch Codex CLI (via Ollama) |
-| 5 | Launch Claude Code CLI (via Ollama) |
-| 6 | Launch Codex App (via Ollama) |
-| 7 | Launch Claude Code Desktop (via Ollama) |
-| 8 | Check / Fix Ollama Sign-in |
-| 9 | Clear Version Cache |
-| T | Toggle Permission Bypass |
+No prompts, no decisions. You always run the latest version.
 
-**Config:** Model: `kimi-k2.6:cloud` · Source: cloud · Skip-perms: ON
+---
+
+## Logging
+
+All launchers write to `Documents\cli-launchers\launcher.log` with timestamps. Log entries include:
+- Startup and shutdown
+- Version checks and npm/GitHub queries
+- Auto-update decisions and install attempts
+- Launch operations
+- Any errors encountered
+
+Press **L** in the menu to view the last 40 lines of the log. If you encounter a crash, check the log for details.
 
 ---
 
 ## DeepSeek Launcher
 
-Launches **Codex CLI**, **Claude Code CLI**, **Codex App**, and **Claude Desktop** through the DeepSeek API. Bring your own API key, pick a model, and launch any tool.
+Launches **Claude Code**, **Codex CLI**, **Codex App**, and **Claude Desktop** through the DeepSeek API.
 
 **What it handles:**
-- Detects and auto-installs Node.js / npm and Codex CLI (via `npm install -g @openai/codex`)
-- Detects and auto-installs Claude Code (via official installer)
-- Checks for updates against npm (Codex, Claude Code CLI)
-- DeepSeek model picker — V4 Pro (`deepseek-v4-pro`), V4 Flash (`deepseek-v4-flash`), or manual entry
+- Auto-updates Claude Code & Codex CLI at startup (checks npm for latest)
+- DeepSeek model picker — V4 Pro, V4 Flash, or manual entry
 - API key setup and persistence
-- Codex CLI: sets `OPENAI_API_KEY` + `OPENAI_BASE_URL` for direct DeepSeek access
-- Codex App: uses `-c` CLI overrides (`model_provider=deepseek`, `wire_api=chat`) — no file changes needed
-- Claude Code CLI: sets `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` for Anthropic-compatible endpoint
-- Claude Code Desktop: writes 3p config (`configLibrary` + `claude_desktop_config.json`) for gateway mode, auto-enables developer mode, clears OAuth session so you get "Continue with Gateway" at launch
+- Sets correct environment variables for each tool
+- Claude Desktop: writes 3p gateway config, enables developer mode, clears OAuth session
 
 **Menu:**
+
 | # | Option |
 |---|--------|
-| 1 | Install / Update Codex CLI |
-| 2 | Install / Update Claude Code |
-| 3 | Pick DeepSeek Model (V4 Pro / Flash / manual) |
-| 4 | Set DeepSeek API Key |
-| 5 | Launch Codex CLI (via DeepSeek) |
-| 6 | Launch Claude Code CLI (via DeepSeek) |
-| 7 | Launch Codex App (via DeepSeek) |
-| 8 | Launch Claude Code Desktop (via DeepSeek) |
-| C | Clear Version Cache |
+| 1 | Launch Claude Code |
+| 2 | Launch Codex CLI |
+| 3 | Launch Codex App |
+| 4 | Launch Claude Desktop |
+| 5 | Set DeepSeek API Key |
+| 6 | Pick Model |
 | T | Toggle Permission Bypass |
+| L | View Log |
+| Q | Quit |
 
-**Config:** Model: `deepseek-v4-pro` (V4 Pro) · API key stored locally · Skip-perms: ON
+---
+
+## Ollama Launcher
+
+Launches **Codex CLI**, **Claude Code**, **Codex App**, and **Claude Desktop** through Ollama.
+
+**What it handles:**
+- Auto-updates Ollama, Claude Code & Codex CLI at startup
+- Ollama server auto-start
+- Model browser — cloud (newest 10), local, or manual entry
+- Pull models from Ollama registry
+- Claude Desktop: writes 3p gateway config, enables developer mode, clears OAuth session
+
+**Menu:**
+
+| # | Option |
+|---|--------|
+| 1 | Launch Codex CLI (via Ollama) |
+| 2 | Launch Claude Code (via Ollama) |
+| 3 | Launch Codex App (via Ollama) |
+| 4 | Launch Claude Desktop (via Ollama) |
+| 5 | Pick / Browse Models |
+| 6 | Check Ollama Sign-in |
+| T | Toggle Permission Bypass |
+| L | View Log |
+| Q | Quit |
 
 ---
 
@@ -116,27 +131,35 @@ Launches **Codex CLI**, **Claude Code CLI**, **Codex App**, and **Claude Desktop
 
 - **Windows:** Windows 10/11 with PowerShell 5.1+
 - **macOS:** macOS 11+ (Big Sur or later), `python3` pre-installed
-- Internet connection (for installs and model browsing)
+- Internet connection (for auto-updates and model browsing)
 - **Ollama account** (for Ollama cloud models like `kimi-k2.6:cloud`)
 - **DeepSeek API key** (for DeepSeek Launcher — get one at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys))
 
 ---
 
-## Website
+## Files
 
-**[https://jlaiii.github.io/cli-launchers](https://jlaiii.github.io/cli-launchers)**
+| File | Platform | Description |
+|------|----------|-------------|
+| `DeepSeek-Launcher.bat` | Windows | Self-extracting launcher (double-click to run) |
+| `DeepSeek-Launcher.ps1` | Windows | Standalone PowerShell script |
+| `DeepSeek-Launcher.command` | macOS | Bash launcher |
+| `Ollama-Launcher.bat` | Windows | Self-extracting launcher (double-click to run) |
+| `Ollama-Launcher.ps1` | Windows | Standalone PowerShell script |
+| `Ollama-Launcher.command` | macOS | Bash launcher |
 
 ---
 
-## Notes
+## Config
 
-- Launchers auto-create `*.config.json` and `*.versions.json` files in your Documents folder (`Documents\cli-launchers`) to remember your settings.
-- If npm/ollama installs fail on Windows, try running the launcher as Administrator.
-- On macOS, `.command` files downloaded from the web may require right-click > Open the first time (Gatekeeper).
-- The `.bat` files are self-extracting — they embed a full PowerShell script and clean up the temp file when done.
-- The `.command` files are plain bash scripts that use `python3` for JSON persistence.
-- API keys are stored locally in config files and only used as environment variables at launch time.
-- The DeepSeek Codex App integration uses `-c` CLI config overrides — no files in `~/.codex` are touched, so existing Ollama or OpenAI configs are unaffected.
+- Launchers create `*.config.json` files in your Documents folder (`Documents\cli-launchers`) to remember your settings
+- Version caches (npm latest) are stored in the same config files with 60-minute TTL
+- Log file: `Documents\cli-launchers\launcher.log`
+- API keys are stored locally and only used as environment variables at launch
+- If npm/ollama installs fail on Windows, try running as Administrator
+- On macOS, `.command` files from the web may require right-click > Open the first time (Gatekeeper)
+- The `.bat` files are self-extracting — they embed the full PowerShell script and clean up the temp file when done
+- The `.command` files use `python3` for JSON persistence
 
 ---
 

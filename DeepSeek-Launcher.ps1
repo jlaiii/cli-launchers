@@ -1,935 +1,683 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    DeepSeek CLI Launcher — Codex CLI + Claude Code + Codex App through DeepSeek API
-.DESCRIPTION
-    Single launcher for running Codex CLI, Claude Code, and Codex App through
-    the DeepSeek API. Set your API key, pick a model, and launch any tool.
-    Usage:
-      DeepSeek-Launcher.bat                -> interactive menu
-      DeepSeek-Launcher.bat codex          -> launch Codex CLI directly
-      DeepSeek-Launcher.bat claude         -> launch Claude Code directly
-      DeepSeek-Launcher.bat codex-app      -> launch Codex App directly
-#>
-
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 Clear-Host
 
-# ============================================
-# Paths & Config
-# ============================================
-$script:BaseDir      = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "cli-launchers"
-if (-not (Test-Path $script:BaseDir)) { New-Item -ItemType Directory -Force -Path $script:BaseDir | Out-Null }
-$script:ConfigPath   = Join-Path $script:BaseDir "DeepSeek-Launcher.config.json"
-$script:VersionCache = Join-Path $script:BaseDir "DeepSeek-Launcher.versions.json"
-$script:CacheTTLMinutes = 60
+# Logging
+$script:BaseDir = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "cli-launchers"
+$null = New-Item -ItemType Directory -Force -Path $script:BaseDir 2>$null
+$script:LogPath = Join-Path $script:BaseDir "launcher.log"
 
-$script:DefaultConfig = @{
-    deepseekModel   = "deepseek-v4-pro"
-    deepseekApiKey  = ""
-    skipPermissions = $true
+function Write-Log {
+    param([string]$Msg)
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "[$ts] $Msg"
+    try { Add-Content -Path $script:LogPath -Value $line -Encoding UTF8 } catch {}
+    try {
+        $f = Get-Item $script:LogPath -ErrorAction Stop
+        if ($f.Length -gt 1MB) {
+            $bak = $script:LogPath -replace '\.log$', '.1.log'
+            Move-Item -Force $script:LogPath $bak
+        }
+    } catch {}
+}
+Write-Log "========== DeepSeek Launcher started =========="
+
+# Config
+$script:ConfigPath = Join-Path $script:BaseDir "DeepSeek-Launcher.config.json"
+$DefaultCfg = @{
+    model = "deepseek-v4-pro"
+    apikey = ""
+    skipPerms = $true
+    claudeNpmLatest = ""
+    claudeNpmChecked = ""
+    codexNpmLatest = ""
+    codexNpmChecked = ""
 }
 
-# ============================================
-# Config Helpers
-# ============================================
-function Get-Config {
-    $defaults = $script:DefaultConfig
+function Get-Cfg {
     if (Test-Path $script:ConfigPath) {
         try {
-            $cfg = Get-Content $script:ConfigPath -Raw | ConvertFrom-Json
-            foreach ($key in $defaults.Keys) {
-                if (-not $cfg.PSObject.Properties[$key]) {
-                    $cfg | Add-Member -NotePropertyName $key -NotePropertyValue $defaults[$key] -Force
+            $c = Get-Content $script:ConfigPath -Raw | ConvertFrom-Json
+            foreach ($k in $DefaultCfg.Keys) {
+                if (-not $c.PSObject.Properties[$k]) {
+                    $c | Add-Member -NotePropertyName $k -NotePropertyValue $DefaultCfg[$k] -Force
                 }
             }
-            return $cfg
-        } catch { }
+            return $c
+        }
+        catch { Write-Log "WARN: Could not parse config" }
     }
-    New-Object PSObject -Property $defaults
+    New-Object PSObject -Property $DefaultCfg
 }
 
-function Save-Config($cfg) {
-    $cfg | ConvertTo-Json -Depth 3 | Set-Content $script:ConfigPath -Encoding UTF8
+function Save-Cfg($c) {
+    try { $c | ConvertTo-Json -Depth 3 | Set-Content $script:ConfigPath -Encoding UTF8 }
+    catch { Write-Log "WARN: Could not save config" }
+}
+
+# Helpers
+function Has($cmd) {
+    $r = $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
+    Write-Log "  Has($cmd) = $r"
+    return $r
+}
+
+function Get-InstalledVer($cmd) {
+    try {
+        $v = & $cmd --version 2>&1
+        Write-Log "  $cmd --version output: $v"
+        if ($v -match '(\d+\.\d+\.\d+)') {
+            $ver = $matches[1]
+            Write-Log "  $cmd installed version: $ver"
+            return $ver
+        }
+    }
+    catch { Write-Log "  $cmd --version failed: $_" }
+    return $null
+}
+
+function Is-CacheStale($ts) {
+    if ([string]::IsNullOrWhiteSpace($ts)) { return $true }
+    try { return ([datetime]::Now - [datetime]::Parse($ts)).TotalMinutes -gt 60 }
+    catch { return $true }
 }
 
 # ============================================
-# Version Cache
+# Auto-Update
 # ============================================
-function Get-VersionCache {
-    $defaultCache = @{
-        codexLatestVersion  = ""; codexLastChecked  = ""
-        claudeLatestVersion = ""; claudeLastChecked = ""
-        approvedLastChecked = ""; codexApproved = ""; claudeApproved = ""
+function Invoke-AutoUpdate {
+    Write-Host "Auto-update check..." -ForegroundColor DarkGray
+    Write-Log "Auto-update check starting"
+    $cfg = Get-Cfg
+    $didWork = $false
+
+    # Claude Code - fetch npm latest if stale
+    try {
+        if ((Is-CacheStale $cfg.claudeNpmChecked) -or (-not $cfg.claudeNpmLatest)) {
+            Write-Log "  Fetching Claude Code latest from npm"
+            $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" -UseBasicParsing -TimeoutSec 10
+            $data = $resp.Content | ConvertFrom-Json
+            if ($data.version) {
+                $cfg.claudeNpmLatest = $data.version
+                $cfg.claudeNpmChecked = [datetime]::Now.ToString("o")
+                Save-Cfg $cfg
+                Write-Log "  Claude Code npm latest: $($data.version)"
+            }
+        }
+        else {
+            Write-Log "  Claude Code npm cache hit: $($cfg.claudeNpmLatest)"
+        }
     }
-    if (Test-Path $script:VersionCache) {
-        try {
-            $cache = Get-Content $script:VersionCache -Raw | ConvertFrom-Json
-            foreach ($key in $defaultCache.Keys) {
-                if (-not $cache.PSObject.Properties[$key]) {
-                    $cache | Add-Member -NotePropertyName $key -NotePropertyValue $defaultCache[$key] -Force
+    catch {
+        Write-Log "  ERROR fetching Claude Code from npm: $_"
+        Write-Host "  Claude Code: offline, skipping." -ForegroundColor DarkGray
+    }
+
+    # Claude Code - install/update if needed
+    $claudeTarget = $cfg.claudeNpmLatest
+    if ($claudeTarget) {
+        $hasClaude = Has "claude"
+        if (-not $hasClaude) {
+            Write-Host "  Claude Code: installing v$claudeTarget..." -ForegroundColor Yellow
+            Write-Log "  Claude Code not installed, installing v$claudeTarget"
+            try {
+                if (Has "npm") {
+                    Write-Log "  Running npm install -g @anthropic-ai/claude-code"
+                    $null = npm install -g @anthropic-ai/claude-code 2>&1
+                    Start-Sleep -Seconds 3
+                }
+                if (Has "claude") {
+                    Write-Log "  Running claude install $claudeTarget"
+                    $null = & claude install $claudeTarget 2>&1
+                }
+                else {
+                    Write-Log "  Falling back to official installer"
+                    irm https://claude.ai/install.ps1 | iex
+                }
+                Write-Host "    Installed v$claudeTarget" -ForegroundColor Green
+                Write-Log "  Claude Code install complete"
+                $didWork = $true
+            }
+            catch {
+                Write-Log "  Claude Code install error: $_"
+                Write-Host "    Install failed" -ForegroundColor Red
+            }
+        }
+        else {
+            $claudeInst = Get-InstalledVer "claude"
+            if ($claudeInst -and $claudeInst -ne $claudeTarget) {
+                Write-Host "  Claude Code: v$claudeInst -> v$claudeTarget" -ForegroundColor Yellow
+                Write-Log "  Claude Code update from v$claudeInst to v$claudeTarget"
+                try {
+                    $null = & claude install $claudeTarget 2>&1
+                    Write-Host "    Updated to v$claudeTarget" -ForegroundColor Green
+                    Write-Log "  Claude Code update done"
+                    $didWork = $true
+                }
+                catch {
+                    Write-Log "  Claude Code update error: $_"
+                    Write-Host "    Update failed" -ForegroundColor Red
                 }
             }
-            return $cache
-        } catch { }
-    }
-    New-Object PSObject -Property $defaultCache
-}
-
-function Save-VersionCache($cache) {
-    $cache | ConvertTo-Json -Depth 3 | Set-Content $script:VersionCache -Encoding UTF8
-}
-
-function Is-CacheStale($lastCheckedStr) {
-    if ([string]::IsNullOrWhiteSpace($lastCheckedStr)) { return $true }
-    try {
-        $last = [datetime]::Parse($lastCheckedStr)
-        return ([datetime]::Now - $last).TotalMinutes -gt $script:CacheTTLMinutes
-    } catch { return $true }
-}
-
-function Test-CommandExists($cmd) {
-    $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
-}
-
-function Test-ClaudeDesktopInstalled {
-    $null -ne (Get-StartApps 2>$null | Where-Object { $_.AppID -like "*Claude*" -and $_.AppID -like "*!Claude" })
-}
-
-function Compare-Versions($installed, $latest) {
-    if ([string]::IsNullOrWhiteSpace($installed) -or [string]::IsNullOrWhiteSpace($latest)) { return $null }
-    try { return ([version]$latest -gt [version]$installed) } catch { return $null }
-}
-
-function Get-ApprovedVersions {
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.approvedLastChecked)) {
-        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved }
-    }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jlaiii/cli-launchers/main/approved-versions.json" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        $cache.codexApproved = $data.codex_latest
-        $cache.claudeApproved = $data.claude_latest
-        $cache.approvedLastChecked = [datetime]::Now.ToString("o")
-        Save-VersionCache $cache
-        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved }
-    } catch { }
-    return $null
-}
-
-# ============================================
-# Version Checkers (Codex + Claude only)
-# ============================================
-function Get-CodexInstalledVersion {
-    try {
-        $ver = & codex --version 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ver -match '(\d+\.\d+\.\d+)') { return $matches[1] }
-    } catch { }
-    return $null
-}
-
-function Get-CodexLatestVersion {
-    $approved = Get-ApprovedVersions
-    if ($approved -and $approved.codex) { return $approved.codex }
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.codexLastChecked)) { return $cache.codexLatestVersion }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@openai/codex/latest" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        if ($data.version) {
-            $cache.codexLatestVersion = $data.version
-            $cache.codexLastChecked = [datetime]::Now.ToString("o")
-            Save-VersionCache $cache
-            return $data.version
         }
-    } catch { }
-    return $null
-}
-
-function Get-ClaudeInstalledVersion {
-    try {
-        $ver = claude --version 2>$null
-        if ($ver -match '(\d+\.\d+\.\d+)') { return $matches[1] }
-    } catch { }
-    return $null
-}
-
-function Get-ClaudeLatestVersion {
-    $approved = Get-ApprovedVersions
-    if ($approved -and $approved.claude) { return $approved.claude }
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.claudeLastChecked)) { return $cache.claudeLatestVersion }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        if ($data.version) {
-            $cache.claudeLatestVersion = $data.version
-            $cache.claudeLastChecked = [datetime]::Now.ToString("o")
-            Save-VersionCache $cache
-            return $data.version
-        }
-    } catch { }
-    return $null
-}
-
-# ============================================
-# Installers
-# ============================================
-function Install-NodeJS {
-    if (Test-CommandExists "winget") {
-        Write-Host "Installing Node.js via winget..." -ForegroundColor Cyan
-        try {
-            winget install OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements 2>$null | Out-Null
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            if (Test-CommandExists "npm") { Write-Host "Node.js ready!" -ForegroundColor Green; return $true }
-        } catch { }
     }
-    Write-Host "Downloading Node.js LTS..." -ForegroundColor Cyan
-    try {
-        $index = Invoke-WebRequest "https://nodejs.org/download/release/index.json" -UseBasicParsing -TimeoutSec 30 | ConvertFrom-Json
-        $lts = $index | Where-Object { $_.lts -ne $false -and $_.lts -ne "" } | Select-Object -First 1
-        if (-not $lts) { $lts = $index | Select-Object -First 1 }
-        $url = "https://nodejs.org/dist/$($lts.version)/node-$($lts.version)-x64.msi"
-        $msi = Join-Path $env:TEMP "node-installer.msi"
-        Invoke-WebRequest $url -OutFile $msi -TimeoutSec 120
-        Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait
-        Remove-Item $msi -Force -ErrorAction SilentlyContinue
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        if (Test-CommandExists "npm") { Write-Host "Node.js installed!" -ForegroundColor Green; return $true }
-    } catch { }
-    Write-Host "Could not auto-install Node.js. Install from https://nodejs.org" -ForegroundColor Red
-    return $false
-}
 
-function Install-CodexCLI {
-    if (-not (Test-CommandExists "npm")) {
-        $ans = Read-Host "Node.js/npm required. Install now? (y/n)"
-        if ($ans -ne 'y') { return $false }
-        if (-not (Install-NodeJS)) { return $false }
-    }
-    Write-Host "Installing Codex CLI via npm..." -ForegroundColor Cyan
-    $oldEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    # Codex CLI - fetch npm latest if stale
     try {
-        npm install -g @openai/codex 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Host "npm install failed. Try Administrator." -ForegroundColor Red; return $false }
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        $ver = Get-CodexInstalledVersion
-        Write-Host "Codex CLI v$ver installed." -ForegroundColor Green
-        return $true
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red; return $false }
-    finally { $ErrorActionPreference = $oldEAP }
-}
-
-function Install-ClaudeCode {
-    param([string]$Version)
-    if (-not $Version) {
-        $approved = Get-ApprovedVersions
-        $Version = if ($approved -and $approved.claude) { $approved.claude } else { "" }
-    }
-    if (-not $Version) { Write-Host "No approved version found." -ForegroundColor Red; Read-Host "Press Enter to continue"; return }
-    Write-Host "Installing Claude Code v$Version (approved version)..." -ForegroundColor Cyan
-    try {
-        if (Test-CommandExists "claude") {
-            & claude install $Version 2>&1 | Out-Null
-        } else {
-            if (-not (Test-CommandExists "npm")) {
-                $ans = Read-Host "Node.js/npm required. Install now? (y/n)"
-                if ($ans -ne 'y') { return }
-                if (-not (Install-NodeJS)) { return }
+        if ((Is-CacheStale $cfg.codexNpmChecked) -or (-not $cfg.codexNpmLatest)) {
+            Write-Log "  Fetching Codex CLI latest from npm"
+            $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@openai/codex/latest" -UseBasicParsing -TimeoutSec 10
+            $data = $resp.Content | ConvertFrom-Json
+            if ($data.version) {
+                $cfg.codexNpmLatest = $data.version
+                $cfg.codexNpmChecked = [datetime]::Now.ToString("o")
+                Save-Cfg $cfg
+                Write-Log "  Codex CLI npm latest: $($data.version)"
             }
-            npm install -g @anthropic-ai/claude-code 2>&1 | Out-Null
-            Start-Sleep -Seconds 3
-            & claude install $Version 2>&1 | Out-Null
         }
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Claude Code v$Version installed." -ForegroundColor Green
-        } else {
-            Write-Host "Installation may have failed. Check logs." -ForegroundColor Yellow
-            irm https://claude.ai/install.ps1 | iex
+        else {
+            Write-Log "  Codex CLI npm cache hit: $($cfg.codexNpmLatest)"
         }
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Press Enter to continue"
-}
-
-# ============================================
-# DeepSeek API Key + Model Picker
-# ============================================
-function Set-DeepSeekApiKey {
-    Clear-Host
-    Write-Host "=============================================" -ForegroundColor Green
-    Write-Host "   Set DeepSeek API Key" -ForegroundColor Green
-    Write-Host "=============================================" -ForegroundColor Green
-    Write-Host ""
-    $cfg = Get-Config
-    if ($cfg.deepseekApiKey) {
-        $masked = $cfg.deepseekApiKey.Substring(0, [Math]::Min(8, $cfg.deepseekApiKey.Length)) + "..."
-        Write-Host "Current key: $masked" -ForegroundColor Cyan
-    } else {
-        Write-Host "No API key set." -ForegroundColor Yellow
     }
-    Write-Host ""
-    Write-Host "Get your key at: https://platform.deepseek.com/api_keys" -ForegroundColor Cyan
-    Write-Host ""
-    $key = Read-Host "Enter DeepSeek API key (or blank to keep current)"
-    if ($key.Trim()) {
-        $cfg.deepseekApiKey = $key.Trim()
-        Save-Config $cfg
-        Write-Host "API key saved." -ForegroundColor Green
-    } else {
-        Write-Host "Key unchanged." -ForegroundColor Yellow
+    catch {
+        Write-Log "  ERROR fetching Codex CLI from npm: $_"
+        Write-Host "  Codex CLI: offline, skipping." -ForegroundColor DarkGray
     }
-    Start-Sleep -Seconds 1
-}
 
-function Show-DeepSeekModelPicker {
-    while ($true) {
-        Clear-Host
-        Write-Host "=============================================" -ForegroundColor Green
-        Write-Host "   DeepSeek Model Selection" -ForegroundColor Green
-        Write-Host "=============================================" -ForegroundColor Green
-        Write-Host ""
-        $cfg = Get-Config
-        Write-Host "Current: $($cfg.deepseekModel)" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  [1] DeepSeek V4 Pro (Recommended)  deepseek-v4-pro" -ForegroundColor Yellow
-        Write-Host "  [2] DeepSeek V4 Flash               deepseek-v4-flash" -ForegroundColor Yellow
-        Write-Host "  [M] Manual entry" -ForegroundColor Yellow
-        Write-Host "  [K] Set API Key" -ForegroundColor White
-        Write-Host "  [B] Back" -ForegroundColor Magenta
-        Write-Host ""
-        $choice = Read-Host "Enter choice"
-        switch ($choice.ToLower()) {
-            "1" { $cfg = Get-Config; $cfg.deepseekModel = "deepseek-v4-pro"; Save-Config $cfg; Write-Host "Selected: deepseek-v4-pro (V4 Pro)" -ForegroundColor Green; Start-Sleep -Seconds 1; return }
-            "2" { $cfg = Get-Config; $cfg.deepseekModel = "deepseek-v4-flash"; Save-Config $cfg; Write-Host "Selected: deepseek-v4-flash (Flash)" -ForegroundColor Green; Start-Sleep -Seconds 1; return }
-            "m" {
-                $manual = Read-Host "Enter DeepSeek model ID"
-                if ($manual) { $cfg = Get-Config; $cfg.deepseekModel = $manual; Save-Config $cfg; Write-Host "Model: $manual" -ForegroundColor Green; Read-Host "Press Enter to continue" }
-                return
+    # Codex CLI - install/update if needed
+    $codexTarget = $cfg.codexNpmLatest
+    if ($codexTarget -and (Has "npm")) {
+        $codexInst = Get-InstalledVer "codex"
+        if (-not $codexInst) {
+            Write-Host "  Codex CLI: installing v$codexTarget..." -ForegroundColor Yellow
+            Write-Log "  Codex CLI not installed, installing v$codexTarget"
+            try {
+                $null = npm install -g "@openai/codex@$codexTarget" 2>&1
+                Write-Host "    Installed v$codexTarget" -ForegroundColor Green
+                Write-Log "  Codex CLI install done"
+                $didWork = $true
             }
-            "k" { Set-DeepSeekApiKey }
-            "b" { return }
-            default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+            catch {
+                Write-Log "  Codex CLI install error: $_"
+                Write-Host "    Install failed" -ForegroundColor Red
+            }
+        }
+        elseif ($codexInst -ne $codexTarget) {
+            Write-Host "  Codex CLI: v$codexInst -> v$codexTarget" -ForegroundColor Yellow
+            Write-Log "  Codex CLI update from v$codexInst to v$codexTarget"
+            try {
+                $null = npm install -g "@openai/codex@$codexTarget" 2>&1
+                Write-Host "    Updated to v$codexTarget" -ForegroundColor Green
+                Write-Log "  Codex CLI update done"
+                $didWork = $true
+            }
+            catch {
+                Write-Log "  Codex CLI update error: $_"
+                Write-Host "    Update failed" -ForegroundColor Red
+            }
         }
     }
+
+    if (-not $didWork) { Write-Host "  All up to date." -ForegroundColor DarkGray }
+    Write-Host ""
+    Write-Log "Auto-update complete. didWork=$didWork"
 }
 
 # ============================================
-# Launch Functions
+# Status
 # ============================================
-function Require-ApiKey {
-    $cfg = Get-Config
-    if (-not $cfg.deepseekApiKey) {
-        Write-Host "ERROR: DeepSeek API key not set." -ForegroundColor Red
-        Write-Host "Use option 4 to set your key." -ForegroundColor Yellow
-        Read-Host "Press Enter to return to menu"
+function Show-Status {
+    $cfg = Get-Cfg
+    $hasClaude = Has "claude"
+    $hasCodex = Has "codex"
+    $claudeVer = ""
+    $codexVer = ""
+    if ($hasClaude) { $claudeVer = Get-InstalledVer "claude" }
+    if ($hasCodex) { $codexVer = Get-InstalledVer "codex" }
+
+    Write-Host "========== DeepSeek CLI Launcher ==========" -ForegroundColor Cyan
+    if ($hasClaude -and $claudeVer) {
+        Write-Host "  Claude Code   : v$claudeVer" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  Claude Code   : not installed" -ForegroundColor DarkGray
+    }
+    if ($hasCodex -and $codexVer) {
+        Write-Host "  Codex CLI     : v$codexVer" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  Codex CLI     : not installed" -ForegroundColor DarkGray
+    }
+    if ($cfg.apikey) {
+        Write-Host "  DeepSeek Key  : SET" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  DeepSeek Key  : NOT SET" -ForegroundColor Red
+    }
+    Write-Host "  Model         : $($cfg.model)" -ForegroundColor Cyan
+    $perm = "ON"
+    if (-not $cfg.skipPerms) { $perm = "OFF" }
+    Write-Host "  Skip Perms    : $perm" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+}
+
+# Require API key
+function Assert-Key {
+    if (-not (Get-Cfg).apikey) {
+        Write-Host "API key not set! Use option 5." -ForegroundColor Red
+        Read-Host "Press Enter"
         return $false
     }
     return $true
 }
 
-function Launch-CodexCLI {
-    if (-not (Require-ApiKey)) { return }
-    if (-not (Test-CommandExists "codex")) {
-        Write-Host "Codex CLI not installed." -ForegroundColor Yellow
-        $ans = Read-Host "Install now? (y/n)"
-        if ($ans -ne 'y') { return }
-        if (-not (Install-CodexCLI)) { return }
-    }
-    $cfg = Get-Config
-    $env:OPENAI_API_KEY = $cfg.deepseekApiKey
-    $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
-
-    $cmdParts = @("codex", "-c", "model_reasoning_effort=high")
-    if ($cfg.skipPermissions) { $cmdParts += "--yolo" }
-    $cmdString = $cmdParts -join ' '
-    Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
-    Write-Host ("-" * 50) -ForegroundColor DarkGray
-    try {
-        $cmdPath = (Get-Command "codex.cmd" -ErrorAction Stop).Source
-        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
-        Write-Host "Launched in new window." -ForegroundColor Cyan
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-}
-
+# ============================================
+# Launch: Claude Code
+# ============================================
 function Launch-ClaudeCode {
-    if (-not (Require-ApiKey)) { return }
-    $cfg = Get-Config
+    if (-not (Assert-Key)) { return }
+    $cfg = Get-Cfg
+    Write-Log "Launching Claude Code CLI"
     $env:ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
-    $env:ANTHROPIC_API_KEY = $cfg.deepseekApiKey
+    $env:ANTHROPIC_API_KEY = $cfg.apikey
     $env:DISABLE_AUTOUPDATER = "1"
 
-    $cmdParts = @("claude")
-    if ($cfg.skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
-    $cmdString = $cmdParts -join ' '
-    Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
+    $cmdArgs = @()
+    if ($cfg.skipPerms) { $cmdArgs += "--dangerously-skip-permissions" }
+
+    Write-Host ""
+    Write-Host ">>> claude (DeepSeek: $($cfg.model))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
-        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        $p = (Get-Command "claude" -ErrorAction Stop).Source
+        Write-Log "  Starting: $p $cmdArgs"
+        Start-Process -FilePath $p -ArgumentList $cmdArgs
         Write-Host "Launched in new window." -ForegroundColor Cyan
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
+    }
+    catch {
+        Write-Log "  Start-Process failed, invoking directly: $_"
+        try { & claude @cmdArgs }
+        catch { Write-Log "  Direct invoke also failed: $_" }
+    }
 }
 
+# ============================================
+# Launch: Codex CLI
+# ============================================
+function Launch-CodexCLI {
+    if (-not (Assert-Key)) { return }
+    $cfg = Get-Cfg
+    Write-Log "Launching Codex CLI"
+    $env:OPENAI_API_KEY = $cfg.apikey
+    $env:OPENAI_BASE_URL = "https://api.deepseek.com/v1"
+
+    $cmdArgs = @("-c", "model_reasoning_effort=high")
+    if ($cfg.skipPerms) { $cmdArgs += "--yolo" }
+
+    Write-Host ""
+    Write-Host ">>> codex (DeepSeek: $($cfg.model))" -ForegroundColor Green
+    Write-Host ("-" * 50) -ForegroundColor DarkGray
+    try {
+        $p = (Get-Command "codex.cmd" -ErrorAction Stop).Source
+        Write-Log "  Starting: $p $cmdArgs"
+        Start-Process -FilePath $p -ArgumentList $cmdArgs
+        Write-Host "Launched in new window." -ForegroundColor Cyan
+    }
+    catch {
+        Write-Log "  Start-Process failed, invoking directly: $_"
+        try { & codex @cmdArgs }
+        catch { Write-Log "  Direct invoke also failed: $_" }
+    }
+}
+
+# ============================================
+# Launch: Codex App
+# ============================================
 function Launch-CodexApp {
-    if (-not (Require-ApiKey)) { return }
-    if (-not (Test-CommandExists "codex")) {
-        Write-Host "Codex CLI not installed (needed for Codex App)." -ForegroundColor Yellow
-        $ans = Read-Host "Install now? (y/n)"
-        if ($ans -ne 'y') { return }
-        if (-not (Install-CodexCLI)) { return }
-    }
-    $cfg = Get-Config
+    if (-not (Assert-Key)) { return }
+    $cfg = Get-Cfg
+    Write-Log "Launching Codex App"
+    $env:DEEPSEEK_API_KEY = $cfg.apikey
 
-    # Use -c overrides (highest precedence in Codex config) so we don't
-    # need to touch any config files or fight with cached ollama state.
-    $env:DEEPSEEK_API_KEY = $cfg.deepseekApiKey
-
-    $cmdParts = @(
-        "codex", "app",
+    $cmdArgs = @("app",
         "-c", "model_provider=deepseek",
-        "-c", "model=$($cfg.deepseekModel)",
+        "-c", "model=$($cfg.model)",
         "-c", "model_reasoning_effort=high",
-        "-c", "wire_api=chat"
-    )
-    $cmdString = $cmdParts -join ' '
-    Write-Host "`n>>> $cmdString (DeepSeek: $($cfg.deepseekModel))" -ForegroundColor Green
+        "-c", "wire_api=chat")
+    Write-Log "  Args: codex $cmdArgs"
+
+    Write-Host ""
+    Write-Host ">>> codex app (DeepSeek: $($cfg.model))" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command "codex.cmd" -ErrorAction Stop).Source
-        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        $p = (Get-Command "codex.cmd" -ErrorAction Stop).Source
+        Write-Log "  Starting: $p $cmdArgs"
+        Start-Process -FilePath $p -ArgumentList $cmdArgs
         Write-Host "Launched in new window." -ForegroundColor Cyan
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
+    }
+    catch {
+        Write-Log "  Start-Process failed, invoking directly: $_"
+        try { & codex @cmdArgs }
+        catch { Write-Log "  Direct invoke also failed: $_" }
+    }
 }
 
-function Write-ClaudeDesktop3pConfig {
-    param([string]$ApiKey, [string]$DeepSeekModel)
+# ============================================
+# Launch: Claude Desktop (3p gateway config)
+# ============================================
+function Launch-ClaudeDesktop {
+    if (-not (Assert-Key)) { return }
+    $cfg = Get-Cfg
+    Write-Log "Launching Claude Desktop"
 
-    # Map DeepSeek model to a Claude model name that passes the whitelist.
-    # DeepSeek's /anthropic endpoint auto-maps:
-    #   claude-opus*              -> deepseek-v4-pro
-    #   claude-sonnet* / haiku*   -> deepseek-v4-flash
-    $claudeModel = switch -Wildcard ($DeepSeekModel) {
-        "deepseek-v4-pro*"   { "claude-opus-4-7" }
-        "deepseek-v4-flash*"  { "claude-sonnet-4-6" }
-        default               { "claude-sonnet-4-6" }
-    }
+    Write-Host ""
+    Write-Host "Preparing Claude Desktop..." -ForegroundColor Cyan
 
-    # Build model list with labelOverride so Claude Desktop's model picker
-    # shows the actual DeepSeek model each Claude name maps to:
-    #   Opus 4.7 / 4.6 → DeepSeek V4 Pro
-    #   Sonnet 4.6 / Haiku 4.5 → DeepSeek V4 Flash
-    $modelDefs = @(
-        @{ name = "claude-opus-4-7";          label = "DeepSeek V4 Pro (Opus 4.7)" }
-        @{ name = "claude-opus-4-6";          label = "DeepSeek V4 Pro (Opus 4.6)" }
-        @{ name = "claude-sonnet-4-6";        label = "DeepSeek V4 Flash (Sonnet 4.6)" }
-        @{ name = "claude-haiku-4-5-20251001"; label = "DeepSeek V4 Flash (Haiku 4.5)" }
-    )
-    # Ensure the user's preferred model is first (default in the picker)
-    $orderedNames = @($claudeModel) + ($modelDefs | ForEach-Object { $_.name } | Where-Object { $_ -ne $claudeModel })
-    $seen = @{}
-    $allModels = @($orderedNames | Where-Object { -not $seen.ContainsKey($_) ; $seen[$_] = $true } | ForEach-Object {
-        $name = $_
-        $def = $modelDefs | Where-Object { $_.name -eq $name } | Select-Object -First 1
-        if ($def) {
-            @{ name = $def.name; labelOverride = $def.label }
-        } else {
-            @{ name = $name }
-        }
-    })
+    # Kill running Desktop
+    Get-Process -Name "Claude" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Write-Log "  Killed existing Claude Desktop (if any)"
 
-    $gatewayConfig = [ordered]@{
-        inferenceProvider          = "gateway"
-        inferenceGatewayBaseUrl    = "https://api.deepseek.com/anthropic"
-        inferenceGatewayApiKey     = $ApiKey
-        inferenceGatewayAuthScheme = "bearer"
-        inferenceModels            = $allModels
-        disableEssentialTelemetry    = $true
-        disableNonessentialTelemetry = $true
-        disableNonessentialServices  = $true
-        unstableDisableModelVerification = $true
-        builtinToolPolicy = [ordered]@{
-            Bash              = "allow"
-            Read              = "allow"
-            Write             = "allow"
-            Edit              = "allow"
-            Glob              = "allow"
-            Grep              = "allow"
-            NotebookEdit      = "allow"
-            WebFetch          = "allow"
-            WebSearch         = "allow"
-            Task              = "allow"
-            TaskCreate        = "allow"
-            TaskUpdate        = "allow"
-            TaskGet           = "allow"
-            TaskList          = "allow"
-            TaskStop          = "allow"
-            Skill             = "allow"
-            AskUserQuestion   = "allow"
-            SendUserMessage   = "allow"
-        }
-        # Setting defaultMode here has no effect — the Desktop app controls
-        # permission mode via its own internal toggle. builtinToolPolicy above
-        # already auto-approves every tool regardless of the session mode label.
-    }
-
-    $roaming = [Environment]::GetFolderPath("ApplicationData")
     $local   = [Environment]::GetFolderPath("LocalApplicationData")
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    $roaming = [Environment]::GetFolderPath("ApplicationData")
+    $utf8    = New-Object System.Text.UTF8Encoding $false
+    $cid     = [Guid]::NewGuid().ToString()
 
-    # ================================================================
-    # Approach 1: configLibrary (primary — what modern Claude Desktop reads)
-    #   %LOCALAPPDATA%\Claude-3p\configLibrary\_meta.json
-    #   %LOCALAPPDATA%\Claude-3p\configLibrary\{uuid}.json
-    # ================================================================
-    $configId = [Guid]::NewGuid().ToString()
-    $libPaths = @(
+    $modelDefs = @(
+        @{ name = "claude-opus-4-7";           labelOverride = "DeepSeek V4 Pro (Opus 4.7)" }
+        @{ name = "claude-opus-4-6";           labelOverride = "DeepSeek V4 Pro (Opus 4.6)" }
+        @{ name = "claude-sonnet-4-6";         labelOverride = "DeepSeek V4 Flash (Sonnet 4.6)" }
+        @{ name = "claude-haiku-4-5-20251001"; labelOverride = "DeepSeek V4 Flash (Haiku 4.5)" }
+    )
+
+    $gateway = [ordered]@{
+        inferenceProvider              = "gateway"
+        inferenceGatewayBaseUrl        = "https://api.deepseek.com/anthropic"
+        inferenceGatewayApiKey         = $cfg.apikey
+        inferenceGatewayAuthScheme     = "bearer"
+        inferenceModels                = $modelDefs
+        disableEssentialTelemetry      = $true
+        disableNonessentialTelemetry   = $true
+        disableNonessentialServices    = $true
+        unstableDisableModelVerification = $true
+        builtinToolPolicy              = [ordered]@{
+            Bash = "allow"; Read = "allow"; Write = "allow"; Edit = "allow"
+            Glob = "allow"; Grep = "allow"; NotebookEdit = "allow"
+            WebFetch = "allow"; WebSearch = "allow"
+            Task = "allow"; TaskCreate = "allow"; TaskUpdate = "allow"
+            TaskGet = "allow"; TaskList = "allow"; TaskStop = "allow"
+            Skill = "allow"; AskUserQuestion = "allow"; SendUserMessage = "allow"
+        }
+    }
+
+    # Write configLibrary
+    $libDirs = @(
         (Join-Path $local "Claude-3p\configLibrary")
         (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\configLibrary")
     )
-    foreach ($libDir in $libPaths) {
-        if (-not (Test-Path $libDir)) { New-Item -ItemType Directory -Force -Path $libDir | Out-Null }
+    foreach ($libDir in $libDirs) {
+        $null = New-Item -ItemType Directory -Force -Path $libDir 2>&1
+        Get-ChildItem $libDir -Filter "*.json" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "_meta.json" -and $_.Name -ne "$cid.json" } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
 
-        # Clean up old UUID config files from previous runs
-        Get-ChildItem $libDir -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -ne "_meta.json" -and $_.Name -ne "$configId.json"
-        } | Remove-Item -Force
-
-        $metaPath = Join-Path $libDir "_meta.json"
-        $meta = [ordered]@{
-            appliedId = $configId
-            entries   = @(@{ id = $configId; name = "DeepSeek Gateway" })
-        }
-        [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 3), $utf8NoBom)
-
-        $configPath = Join-Path $libDir "$configId.json"
-        [System.IO.File]::WriteAllText($configPath, ($gatewayConfig | ConvertTo-Json -Depth 5), $utf8NoBom)
+        $meta = [ordered]@{ appliedId = $cid; entries = @(@{ id = $cid; name = "DeepSeek Gateway" }) }
+        $metaJson = $meta | ConvertTo-Json -Depth 3
+        $gateJson = $gateway | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText((Join-Path $libDir "_meta.json"), $metaJson, $utf8)
+        [System.IO.File]::WriteAllText((Join-Path $libDir "$cid.json"), $gateJson, $utf8)
+        Write-Log "  Wrote configLibrary: $libDir"
     }
 
-    # ================================================================
-    # Approach 2: claude_desktop_config.json (legacy / broader compat)
-    #   Merge deploymentMode=3p + enterpriseConfig into existing files
-    # ================================================================
-    $enterpriseConfig = [ordered]@{}
-    foreach ($key in $gatewayConfig.Keys) {
-        if ($key -ne "unstableDisableModelVerification") {
-            $enterpriseConfig[$key] = $gatewayConfig[$key]
+    # Write claude_desktop_config.json (legacy compat)
+    $enterprise = [ordered]@{}
+    foreach ($k in $gateway.Keys) {
+        if ($k -ne "unstableDisableModelVerification") {
+            $enterprise[$k] = $gateway[$k]
         }
     }
-
-    $config3p = [ordered]@{
-        deploymentMode = "3p"
-        enterpriseConfig = $enterpriseConfig
-        preferences = [ordered]@{
-            secureVmFeaturesEnabled     = $true
-            coworkScheduledTasksEnabled = $true
-            ccdScheduledTasksEnabled    = $true
-            sidebarMode                 = "epitaxy"
-            coworkWebSearchEnabled      = $true
-        }
-    }
-    $json3p = $config3p | ConvertTo-Json -Depth 5
-
+    $json3p = ([ordered]@{ deploymentMode = "3p"; enterpriseConfig = $enterprise } | ConvertTo-Json -Depth 5)
     $paths3p = @(
         (Join-Path $local "Claude-3p\claude_desktop_config.json")
         (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\claude_desktop_config.json")
         (Join-Path $roaming "Claude-3p\claude_desktop_config.json")
     )
     foreach ($p in $paths3p) {
-        $dir = Split-Path $p -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-        [System.IO.File]::WriteAllText($p, $json3p, $utf8NoBom)
+        $parentDir = Split-Path $p -Parent
+        $null = New-Item -ItemType Directory -Force -Path $parentDir 2>&1
+        [System.IO.File]::WriteAllText($p, $json3p, $utf8)
+        Write-Log "  Wrote 3p config: $p"
     }
 
-    # Merge into main Claude config (preserve the Desktop's own keys)
-    $mainPaths = @(
-        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json")
-        (Join-Path $local "Claude\claude_desktop_config.json")
-        (Join-Path $roaming "Claude\claude_desktop_config.json")
-    )
-    foreach ($p in $mainPaths) {
-        $dir = Split-Path $p -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-
-        $existing = $null
-        if (Test-Path $p) {
-            try { $existing = Get-Content $p -Raw | ConvertFrom-Json } catch { }
-        }
-        if (-not $existing) { $existing = New-Object PSObject }
-
-        $existing | Add-Member -NotePropertyName "deploymentMode" -NotePropertyValue "3p" -Force
-        $existing | Add-Member -NotePropertyName "enterpriseConfig" -NotePropertyValue $enterpriseConfig -Force
-
-        if (-not ($existing.PSObject.Properties.Name -contains "preferences")) {
-            $existing | Add-Member -NotePropertyName "preferences" -NotePropertyValue ([ordered]@{}) -Force
-        }
-
-        $merged = $existing | ConvertTo-Json -Depth 6
-        [System.IO.File]::WriteAllText($p, $merged, $utf8NoBom)
-    }
-
-    Write-Host "  Wrote 3p config (configLibrary + claude_desktop_config.json)" -ForegroundColor DarkGray
-}
-
-function Clear-ClaudeDesktopSession {
-    # Remove active OAuth session so Claude Desktop reads the 3p config
-    # instead of auto-logging into an existing Anthropic account.
-    $local   = [Environment]::GetFolderPath("LocalApplicationData")
-    $base    = Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
-
-    Write-Host "Clearing any existing Claude Desktop session..." -ForegroundColor DarkGray
-
-    # Clear OAuth token from config.json (the main auth session)
-    $cfgPath = Join-Path $base "config.json"
-    if (Test-Path $cfgPath) {
+    # Clear OAuth session
+    $base = Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
+    $claudeCfgPath = Join-Path $base "config.json"
+    if (Test-Path $claudeCfgPath) {
         try {
-            $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            $claudeCfg = Get-Content $claudeCfgPath -Raw | ConvertFrom-Json
+            $oauthKeys = @(
+                "oauth:tokenCache", "oauth:refreshToken", "oauth:accountId",
+                "oauth:accessToken", "oauth:expiresAt", "oauth:token",
+                "activeAccountId", "activeOrgId", "authSession",
+                "lastSignedInAccount", "oauthTokens"
+            )
             $changed = $false
-            # Clear all known auth-related keys
-            $keysToClear = @("oauth:tokenCache", "oauth:refreshToken", "oauth:accountId",
-                             "oauth:accessToken", "oauth:expiresAt", "oauth:token",
-                             "activeAccountId", "activeOrgId", "authSession",
-                             "lastSignedInAccount", "oauthTokens")
-            foreach ($key in $keysToClear) {
-                if ($cfg.PSObject.Properties[$key]) {
-                    $cfg.PSObject.Properties.Remove($key)
+            foreach ($k in $oauthKeys) {
+                if ($claudeCfg.PSObject.Properties[$k]) {
+                    $claudeCfg.PSObject.Properties.Remove($k)
                     $changed = $true
                 }
             }
             if ($changed) {
-                $cleaned = $cfg | ConvertTo-Json -Depth 5
-                $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-                [System.IO.File]::WriteAllText($cfgPath, $cleaned, $utf8NoBom)
-                Write-Host "  Cleared OAuth session from config.json" -ForegroundColor DarkGray
+                $cleanJson = $claudeCfg | ConvertTo-Json -Depth 5
+                [System.IO.File]::WriteAllText($claudeCfgPath, $cleanJson, $utf8)
             }
-        } catch { }
+            Write-Log "  Cleared OAuth session"
+        }
+        catch { Write-Log "  OAuth clear failed: $_" }
     }
 
-    # Remove cowork-enabled-cli-ops (tied to the signed-in account)
-    $coworkPath = Join-Path $base "cowork-enabled-cli-ops.json"
-    if (Test-Path $coworkPath) {
-        Remove-Item $coworkPath -Force
-        Write-Host "  Removed cowork session file" -ForegroundColor DarkGray
-    }
-
-    # Remove ant-did (anonymous device ID that may link to prior session)
-    $antDidPath = Join-Path $base "ant-did"
-    if (Test-Path $antDidPath) {
-        Remove-Item $antDidPath -Force
-        Write-Host "  Removed device identity file" -ForegroundColor DarkGray
-    }
-
-    # Write bypass permission mode into the Desktop's own config.json
-    # so the embedded Claude Code starts in bypassPermissions mode
-    if (-not (Test-Path $cfgPath)) {
-        $cfg = New-Object PSObject
-    } else {
-        try { $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { $cfg = New-Object PSObject }
-    }
-    if (-not ($cfg.PSObject.Properties.Name -contains "allowBypassPermissionsMode")) {
-        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypassPermissions" -Force
-        $cfg | Add-Member -NotePropertyName "allowBypassPermissionsMode" -NotePropertyValue $true -Force
-        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText($cfgPath, ($cfg | ConvertTo-Json -Depth 3), $utf8NoBom)
-        Write-Host "  Set permission mode to bypass" -ForegroundColor DarkGray
-    }
-}
-
-function Enable-ClaudeDeveloperMode {
-    # Create developer_settings.json so the Developer menu + 3p inference appear
-    # without the user having to enable it manually via Help -> Troubleshooting.
-    $paths = @(
-        (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\developer_settings.json")
-        (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Claude\developer_settings.json")
-        (Join-Path ([Environment]::GetFolderPath("ApplicationData")) "Claude\developer_settings.json")
+    # Developer mode
+    $devPaths = @(
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\developer_settings.json")
+        (Join-Path $local "Claude\developer_settings.json")
+        (Join-Path $roaming "Claude\developer_settings.json")
     )
-    $json = '{"allowDevTools":true}'
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    foreach ($p in $paths) {
-        $dir = Split-Path $p -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-        [System.IO.File]::WriteAllText($p, $json, $utf8NoBom)
+    foreach ($p in $devPaths) {
+        $parentDir = Split-Path $p -Parent
+        $null = New-Item -ItemType Directory -Force -Path $parentDir 2>&1
+        [System.IO.File]::WriteAllText($p, '{"allowDevTools":true}', $utf8)
     }
-}
+    Write-Log "  Enabled developer mode"
 
-function Launch-ClaudeDesktop {
-    if (-not (Require-ApiKey)) { return }
-    $cfg = Get-Config
-
-    # Kill any running Claude Desktop (GUI only, not CLI) so it starts fresh with the new config
-    Write-Host "`nPreparing Claude Desktop for third-party mode..." -ForegroundColor Cyan
-    $claudeDesktopProcs = Get-Process -Name "Claude" -ErrorAction SilentlyContinue | Where-Object {
-        $_.MainWindowHandle -ne 0
-    }
-    if ($claudeDesktopProcs) {
-        Write-Host "  Stopping running Claude Desktop..." -ForegroundColor DarkGray
-        $claudeDesktopProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-    }
-
-    Clear-ClaudeDesktopSession
-    Enable-ClaudeDeveloperMode
-    Write-ClaudeDesktop3pConfig -ApiKey $cfg.deepseekApiKey -DeepSeekModel $cfg.deepseekModel
-
+    Write-Host "  Config written. Look for 'Continue with Gateway' at sign-in." -ForegroundColor DarkGray
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Yellow
-    Write-Host "  Developer Mode + 3p config applied automatically" -ForegroundColor Green
-    Write-Host "============================================================" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  If the app asks you to sign in:" -ForegroundColor Cyan
-    Write-Host "    -> Click 'Continue with Gateway' on the sign-in screen" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  If you don't see the Gateway option:" -ForegroundColor Cyan
-    Write-Host "    Help -> Troubleshooting -> Enable Developer Mode" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  All tools are auto-approved via enterprise policy." -ForegroundColor Green
-    Write-Host "  The session mode label may show 'Accept Edits' but" -ForegroundColor Green
-    Write-Host "  Bash, Write, WebFetch, etc. all run without prompts." -ForegroundColor Green
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Launching Claude Code Desktop..." -ForegroundColor Green
+    Write-Host "Launching Claude Desktop..." -ForegroundColor Green
     try {
         Start-Process "shell:appsFolder\Claude_pzs8sxrjxfjjc!Claude"
-    } catch {
-        Write-Host "ERROR: Could not launch Claude Desktop." -ForegroundColor Red
-        Write-Host "Install from: https://claude.ai/download" -ForegroundColor Yellow
+        Write-Log "  Launched Claude Desktop"
+    }
+    catch {
+        Write-Log "  Claude Desktop launch failed: $_"
+        Write-Host "Not found. Install: https://claude.ai/download" -ForegroundColor Red
     }
 }
 
 # ============================================
-# Status Display
+# Settings
 # ============================================
-function Show-Status {
-    $cCodex  = Test-CommandExists "codex"
-    $cClaude = Test-CommandExists "claude"
-    $cfg     = Get-Config
-    $approved = Get-ApprovedVersions
+function Set-ApiKey {
+    Clear-Host
+    Write-Host "========== Set DeepSeek API Key ==========" -ForegroundColor Green
+    Write-Host ""
+    $cfg = Get-Cfg
+    if ($cfg.apikey) {
+        $masked = $cfg.apikey.Substring(0, [Math]::Min(8, $cfg.apikey.Length)) + "..."
+        Write-Host "Current key: $masked" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No API key set." -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "Get key at: https://platform.deepseek.com/api_keys" -ForegroundColor Cyan
+    Write-Host ""
+    $key = Read-Host "Enter API key (blank to keep current)"
+    if ($key.Trim()) {
+        $cfg.apikey = $key.Trim()
+        Save-Cfg $cfg
+        Write-Log "API key updated"
+        Write-Host "Saved." -ForegroundColor Green
+    }
+    Start-Sleep -Seconds 1
+}
 
-    Write-Host "`n========== DeepSeek CLI Launcher ==========" -ForegroundColor Cyan
-    if ($cCodex) {
-        $inst = Get-CodexInstalledVersion
-        $appr = if ($approved) { $approved.codex } else { $null }
-        if ($appr -and $inst -and (Compare-Versions $inst $appr)) {
-            Write-Host "  Codex CLI     : v$inst (approved: v$appr - UPDATE AVAILABLE)" -ForegroundColor Yellow
-        } elseif ($inst) {
-            Write-Host "  Codex CLI     : v$inst (up to date)" -ForegroundColor Green
-        } else {
-            Write-Host "  Codex CLI     : v$inst" -ForegroundColor Green
+function Pick-Model {
+    Clear-Host
+    Write-Host "========== Pick Model ==========" -ForegroundColor Green
+    Write-Host ""
+    $cfg = Get-Cfg
+    Write-Host "Current: $($cfg.model)" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  [1] DeepSeek V4 Pro  (deepseek-v4-pro)" -ForegroundColor Yellow
+    Write-Host "  [2] DeepSeek V4 Flash (deepseek-v4-flash)" -ForegroundColor Yellow
+    Write-Host "  [M] Manual entry" -ForegroundColor White
+    Write-Host ""
+    $choice = Read-Host "Choice"
+    switch ($choice.ToLower()) {
+        "1" {
+            $cfg.model = "deepseek-v4-pro"
+            Save-Cfg $cfg
+            Write-Host "Model: deepseek-v4-pro" -ForegroundColor Green
         }
-    } else {
-        Write-Host "  Codex CLI     : NOT INSTALLED" -ForegroundColor DarkGray
-    }
-    if ($cClaude) {
-        $inst = Get-ClaudeInstalledVersion
-        $appr = if ($approved) { $approved.claude } else { $null }
-        if ($appr -and $inst -and (Compare-Versions $inst $appr)) {
-            Write-Host "  Claude Code   : v$inst !UNSAFE! (approved: v$appr)" -ForegroundColor Red
-            Write-Host "                 This version may have API errors with DeepSeek." -ForegroundColor Red
-            Write-Host "                 Use option 2 to install the approved version." -ForegroundColor Yellow
-        } elseif ($appr -and $inst -and (Compare-Versions $appr $inst)) {
-            Write-Host "  Claude Code   : v$inst (approved: v$appr - update available)" -ForegroundColor Yellow
-        } elseif ($inst) {
-            Write-Host "  Claude Code   : v$inst (approved)" -ForegroundColor Green
-        } else {
-            Write-Host "  Claude Code   : v$inst" -ForegroundColor Green
+        "2" {
+            $cfg.model = "deepseek-v4-flash"
+            Save-Cfg $cfg
+            Write-Host "Model: deepseek-v4-flash" -ForegroundColor Green
         }
-    } else {
-        Write-Host "  Claude Code   : NOT INSTALLED" -ForegroundColor DarkGray
+        "m" {
+            $m = Read-Host "Enter model ID"
+            if ($m) {
+                $cfg.model = $m
+                Save-Cfg $cfg
+                Write-Host "Model: $m" -ForegroundColor Green
+                Read-Host "Press Enter"
+            }
+        }
     }
-    Write-Host "  DeepSeek Model: $($cfg.deepseekModel)" -ForegroundColor Cyan
-    if ($cfg.deepseekApiKey) {
-        Write-Host "  DeepSeek Key  : SET" -ForegroundColor Green
-    } else {
-        Write-Host "  DeepSeek Key  : NOT SET" -ForegroundColor Red
-    }
-    $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
-    Write-Host "  Skip-perms    : $permText" -ForegroundColor Cyan
-    $cDesktop = Test-ClaudeDesktopInstalled
-    if ($cDesktop) {
-        Write-Host "  Claude Desktop : INSTALLED" -ForegroundColor Green
-    } else {
-        Write-Host "  Claude Desktop : NOT INSTALLED" -ForegroundColor DarkGray
-    }
-    Write-Host "==========================================" -ForegroundColor Cyan
+    Write-Log "Model changed to: $($cfg.model)"
+    Start-Sleep -Seconds 1
 }
 
 # ============================================
 # Main Menu
 # ============================================
-function Show-MainMenu {
+function Show-Menu {
     Clear-Host
     Show-Status
-    $cCodex  = Test-CommandExists "codex"
-    $cClaude = Test-CommandExists "claude"
-    $cfg     = Get-Config
-    $approved = Get-ApprovedVersions
+    $cfg = Get-Cfg
+    $perm = "ON"
+    if (-not $cfg.skipPerms) { $perm = "OFF" }
 
-    Write-Host "`n[1] Install / Update Codex CLI (needed for Codex + Codex App)" -ForegroundColor White
-    Write-Host "[2] Install / Update Claude Code" -ForegroundColor White
-    Write-Host "[3] Pick DeepSeek Model [current: $($cfg.deepseekModel)]" -ForegroundColor White
-    Write-Host "[4] Set DeepSeek API Key" -ForegroundColor White
-    if ($cCodex -and $cfg.deepseekApiKey) {
-        Write-Host "[5] Launch Codex CLI (via DeepSeek)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Codex CLI not installed" }
-        Write-Host "[5] Launch Codex CLI [$reason]" -ForegroundColor DarkGray
-    }
-    if ($cClaude -and $cfg.deepseekApiKey) {
-        Write-Host "[6] Launch Claude Code CLI (via DeepSeek)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Claude Code not installed" }
-        Write-Host "[6] Launch Claude Code CLI [$reason]" -ForegroundColor DarkGray
-    }
-    if ($cCodex -and $cfg.deepseekApiKey) {
-        Write-Host "[7] Launch Codex App (via DeepSeek)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Codex CLI not installed" }
-        Write-Host "[7] Launch Codex App [$reason]" -ForegroundColor DarkGray
-    }
-    $cDesktop = Test-ClaudeDesktopInstalled
-    if ($cDesktop -and $cfg.deepseekApiKey) {
-        Write-Host "[8] Launch Claude Code Desktop (via DeepSeek)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $cfg.deepseekApiKey) { "API key not set" } else { "Claude Desktop not installed" }
-        Write-Host "[8] Launch Claude Desktop [$reason]" -ForegroundColor DarkGray
-    }
-    Write-Host "[C] Clear Version Cache" -ForegroundColor White
-    $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
-    Write-Host "[T] Toggle Permission Bypass [currently: $permText]" -ForegroundColor White
+    Write-Host ""
+    Write-Host "[1] Launch Claude Code" -ForegroundColor Green
+    Write-Host "[2] Launch Codex CLI" -ForegroundColor Green
+    Write-Host "[3] Launch Codex App" -ForegroundColor Green
+    Write-Host "[4] Launch Claude Desktop" -ForegroundColor Green
+    Write-Host "[5] Set DeepSeek API Key" -ForegroundColor White
+    Write-Host "[6] Pick Model [current: $($cfg.model)]" -ForegroundColor White
+    Write-Host "[T] Toggle Permissions [$perm]" -ForegroundColor White
+    Write-Host "[L] View Log" -ForegroundColor White
     Write-Host "[Q] Quit" -ForegroundColor Magenta
     Write-Host ""
 }
 
 # ============================================
-# Main
+# Run
 # ============================================
+try {
+    Invoke-AutoUpdate
+}
+catch {
+    Write-Log "FATAL: Auto-update crashed: $_"
+    Write-Host "Auto-update error (continuing anyway): $_" -ForegroundColor Red
+}
+
 if ($args.Count -gt 0) {
     $target = $args[0].ToLower()
-    $cfg = Get-Config
-    if (-not $cfg.deepseekApiKey) { Write-Host "ERROR: DeepSeek API key not set. Run launcher to configure." -ForegroundColor Red; exit 1 }
-
+    $cfg = Get-Cfg
+    if (-not $cfg.apikey -and $target -ne "claude-desktop") {
+        Write-Host "API key not set. Run without args to configure." -ForegroundColor Red
+        Write-Log "Direct launch aborted: no API key"
+        exit 1
+    }
+    Write-Log "Direct launch: $target"
     switch ($target) {
-        "codex"           { Launch-CodexCLI; exit $LASTEXITCODE }
-        "claude"          { Launch-ClaudeCode; exit $LASTEXITCODE }
-        "codex-app"       { Launch-CodexApp; exit $LASTEXITCODE }
-        "claude-desktop"  { Launch-ClaudeDesktop; exit $LASTEXITCODE }
+        "codex"          { Launch-CodexCLI }
+        "claude"         { Launch-ClaudeCode }
+        "codex-app"      { Launch-CodexApp }
+        "claude-desktop" { Launch-ClaudeDesktop }
         default {
             Write-Host "Usage: DeepSeek-Launcher.bat [codex|claude|codex-app|claude-desktop]"
             exit 1
         }
     }
+    Write-Log "Exiting after direct launch"
+    exit 0
 }
 
 while ($true) {
-    Show-MainMenu
-    $choice = Read-Host "Enter choice"
-    $cfg = Get-Config
+    Show-Menu
+    $choice = Read-Host "Choice"
+    Write-Log "Menu choice: $choice"
     switch ($choice.ToLower()) {
         "1" {
-            $approved = Get-ApprovedVersions
-            $approvedVer = if ($approved -and $approved.codex) { $approved.codex } else { $null }
-            if (Test-CommandExists "codex") {
-                $inst = Get-CodexInstalledVersion
-                if ($approvedVer -and $inst -and (Compare-Versions $inst $approvedVer)) {
-                    Write-Host "Codex CLI update: v$inst -> v$approvedVer (approved)" -ForegroundColor Yellow
-                    $ans = Read-Host "Update now? (y/n)"
-                    if ($ans -eq 'y') { Install-CodexCLI }
-                } elseif ($approvedVer -and $inst -and (Compare-Versions $approvedVer $inst)) {
-                    Write-Host "Approved update: v$inst -> v$approvedVer" -ForegroundColor Yellow
-                    $ans = Read-Host "Update now? (y/n)"
-                    if ($ans -eq 'y') { Install-CodexCLI }
-                } else {
-                    $ans = Read-Host "Codex CLI v$inst is current. Reinstall? (y/n)"
-                    if ($ans -eq 'y') { Install-CodexCLI }
-                }
-            } else {
-                $ans = Read-Host "Install Codex CLI now? (y/n)"
-                if ($ans -eq 'y') { Install-CodexCLI }
-            }
-            Read-Host "Press Enter to continue"
+            try { Launch-ClaudeCode }
+            catch { Write-Log "Launch-ClaudeCode crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" }
         }
         "2" {
-            $approved = Get-ApprovedVersions
-            $approvedVer = if ($approved -and $approved.claude) { $approved.claude } else { $null }
-            if (Test-CommandExists "claude") {
-                $inst = Get-ClaudeInstalledVersion
-                if ($approvedVer -and $inst -and (Compare-Versions $inst $approvedVer)) {
-                    Write-Host "Your Claude Code v$inst is NOT the approved version (v$approvedVer)." -ForegroundColor Red
-                    Write-Host "Newer versions may have API errors with DeepSeek." -ForegroundColor Red
-                    $ans = Read-Host "Install approved v$approvedVer now? (y/n)"
-                    if ($ans -eq 'y') { Install-ClaudeCode -Version $approvedVer }
-                } elseif ($approvedVer -and $inst -and (Compare-Versions $approvedVer $inst)) {
-                    Write-Host "Approved update available: v$inst -> v$approvedVer" -ForegroundColor Yellow
-                    $ans = Read-Host "Update now? (y/n)"
-                    if ($ans -eq 'y') { Install-ClaudeCode -Version $approvedVer }
-                } else {
-                    Write-Host "Claude Code v$inst is the approved version." -ForegroundColor Green
-                    $ans = Read-Host "Reinstall? (y/n)"
-                    if ($ans -eq 'y') { Install-ClaudeCode -Version $approvedVer }
-                }
-            } else {
-                $ans = Read-Host "Install Claude Code (approved version) now? (y/n)"
-                if ($ans -eq 'y') { Install-ClaudeCode }
-            }
-            Read-Host "Press Enter to continue"
+            try { Launch-CodexCLI }
+            catch { Write-Log "Launch-CodexCLI crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" }
         }
-        "3" { Show-DeepSeekModelPicker }
-        "4" { Set-DeepSeekApiKey }
-        "5" {
-            if (-not $cfg.deepseekApiKey) {
-                Write-Host "API key not set. Use option 4 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } elseif (-not (Test-CommandExists "codex")) {
-                Write-Host "Codex CLI not installed. Use option 1 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-CodexCLI }
+        "3" {
+            try { Launch-CodexApp }
+            catch { Write-Log "Launch-CodexApp crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" }
         }
-        "6" {
-            if (-not $cfg.deepseekApiKey) {
-                Write-Host "API key not set. Use option 4 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } elseif (-not (Test-CommandExists "claude")) {
-                Write-Host "Claude Code not installed. Use option 2 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-ClaudeCode }
+        "4" {
+            try { Launch-ClaudeDesktop }
+            catch { Write-Log "Launch-ClaudeDesktop crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" }
         }
-        "7" {
-            if (-not $cfg.deepseekApiKey) {
-                Write-Host "API key not set. Use option 4 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } elseif (-not (Test-CommandExists "codex")) {
-                Write-Host "Codex CLI not installed. Use option 1 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-CodexApp }
-        }
-        "c" {
-            $cache = Get-VersionCache
-            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.approvedLastChecked = ""
-            Save-VersionCache $cache
-            Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
-        }
-        "8" {
-            if (-not $cfg.deepseekApiKey) {
-                Write-Host "API key not set. Use option 4 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } elseif (-not (Test-ClaudeDesktopInstalled)) {
-                Write-Host "Claude Desktop not installed. Install from https://claude.ai/download" -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-ClaudeDesktop }
-        }
+        "5" { Set-ApiKey }
+        "6" { Pick-Model }
         "t" {
-            $cfg = Get-Config
-            $cfg.skipPermissions = -not $cfg.skipPermissions
-            Save-Config $cfg
-            $text = if ($cfg.skipPermissions) { "SKIP-PERMISSIONS" } else { "NORMAL" }
-            Write-Host "Mode: $text" -ForegroundColor Green; Start-Sleep -Seconds 1
+            $c = Get-Cfg
+            $c.skipPerms = -not $c.skipPerms
+            Save-Cfg $c
+            Write-Log "Permissions toggled to: $($c.skipPerms)"
         }
-        "q" { Write-Host "Goodbye!" -ForegroundColor Green; exit 0 }
-        default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        "l" {
+            Clear-Host
+            Write-Host "========== Log File ==========" -ForegroundColor Cyan
+            Write-Host "Path: $script:LogPath" -ForegroundColor DarkGray
+            Write-Host ""
+            if (Test-Path $script:LogPath) {
+                Get-Content $script:LogPath -Tail 40
+            }
+            else {
+                Write-Host "No log file yet." -ForegroundColor Yellow
+            }
+            Write-Host ""
+            Read-Host "Press Enter to return"
+        }
+        "q" {
+            Write-Host "Bye!" -ForegroundColor Green
+            Write-Log "User quit"
+            exit 0
+        }
+        default {
+            Write-Host "Invalid." -ForegroundColor Red
+            Start-Sleep -Seconds 1
+        }
     }
 }

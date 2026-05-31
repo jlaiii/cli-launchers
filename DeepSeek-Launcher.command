@@ -3,338 +3,289 @@ set -euo pipefail
 
 # ============================================================
 #  DeepSeek CLI Launcher for macOS
-#  Codex CLI + Claude Code + Codex App through DeepSeek API
-#  Interactive menu + direct launch with model picker.
+#  Auto-updates Claude Code & Codex CLI, then interactive menu
 # ============================================================
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/sbin:$PATH"
-
-if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
-    exec < /dev/tty
-fi
+[[ ! -t 0 ]] && [[ -e /dev/tty ]] && exec < /dev/tty
 
 if ! command -v python3 &>/dev/null; then
     echo "ERROR: python3 required. Install Xcode CLI tools: xcode-select --install"
     exit 1
 fi
 
-# Resolve script/config directory
 SCRIPT_DIR="$HOME/Documents/cli-launchers"
 mkdir -p "$SCRIPT_DIR"
-
 CONFIG_FILE="$SCRIPT_DIR/DeepSeek-Launcher.config.json"
-VERSION_CACHE="$SCRIPT_DIR/DeepSeek-Launcher.versions.json"
-CACHE_TTL_MINUTES=60
+LOG_FILE="$SCRIPT_DIR/launcher.log"
 
 DEFAULT_MODEL="deepseek-v4-pro"
-DEFAULT_KEY=""
-DEFAULT_SKIPPERMS="true"
 
-# --- Colors ---
-CLR_RESET='\033[0m'; CLR_RED='\033[1;31m'; CLR_GREEN='\033[1;32m'
-CLR_YELLOW='\033[1;33m'; CLR_CYAN='\033[1;36m'; CLR_MAGENTA='\033[1;35m'
-CLR_WHITE='\033[1;37m'; CLR_GRAY='\033[0;37m'
+R='\033[0m'; RD='\033[1;31m'; GN='\033[1;32m'; YL='\033[1;33m'
+CY='\033[1;36m'; MG='\033[1;35m'; WH='\033[1;37m'; GY='\033[0;37m'
 
 lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 ask() { printf -v "$2" '%s' ''; read -rp "$1" "$2" || true; }
 
-# --- JSON Helpers ---
-json_read() {
+# --- Logging ---
+log() {
+    local ts; ts=$(date "+%Y-%m-%d %H:%M:%S")
+    echo "[$ts] $1" >> "$LOG_FILE" 2>/dev/null || true
+    # Rotate at ~1MB
+    if [[ -f "$LOG_FILE" ]]; then
+        local sz; sz=$(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+        if [[ $sz -gt 1048576 ]]; then mv "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true; fi
+    fi
+}
+log "========== DeepSeek Launcher (macOS) started =========="
+
+# --- JSON helpers ---
+json_get() {
     local file="$1" key="$2" default="${3:-}"
-    [[ ! -f "$file" ]] && echo "$default" && return
-    python3 -c "import json,sys
-try:
- with open('$file') as f: d=json.load(f)
- v=d.get('$key'); print(v if v is not None else '$default')
-except: print('$default')" 2>/dev/null || echo "$default"
+    [[ ! -f "$file" ]] && { echo "$default"; return; }
+    python3 -c "import json; d=json.load(open('$file')); print(d.get('$key','$default'))" 2>/dev/null || echo "$default"
 }
-
-config_get() { json_read "$CONFIG_FILE" "$1" "$2"; }
-config_set() {
-    local key="$1" val="$2"
-    python3 -c "import json,os
-d={}
+json_set() {
+    python3 -c "
+import json, os
+d = {}
 if os.path.exists('$CONFIG_FILE'):
- try:
-  with open('$CONFIG_FILE') as f: d=json.load(f)
- except: d={}
-d['$key']='$val'
-with open('$CONFIG_FILE','w') as f: json.dump(d,f,indent=2)" 2>/dev/null
+    try: d = json.load(open('$CONFIG_FILE'))
+    except: pass
+d['$1'] = '$2'
+json.dump(d, open('$CONFIG_FILE','w'), indent=2)" 2>/dev/null
+}
+cfg() { json_get "$CONFIG_FILE" "$1" "$2"; }
+
+# --- Version helpers ---
+get_ver() {
+    command -v "$1" &>/dev/null || { echo ""; return; }
+    local v; v=$("$1" --version 2>/dev/null || true)
+    [[ "$v" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo ""
 }
 
-cache_get() { json_read "$VERSION_CACHE" "$1" "$2"; }
-cache_set() {
-    local key="$1" val="$2"
-    python3 -c "import json,os
-d={}
-if os.path.exists('$VERSION_CACHE'):
- try:
-  with open('$VERSION_CACHE') as f: d=json.load(f)
- except: d={}
-d['$key']='$val'
-with open('$VERSION_CACHE','w') as f: json.dump(d,f,indent=2)" 2>/dev/null
-}
-
-ensure_config() {
-    [[ -f "$CONFIG_FILE" ]] && return
-    python3 -c "import json
-d={'deepseekModel':'$DEFAULT_MODEL','deepseekApiKey':'$DEFAULT_KEY','skipPermissions':True}
-with open('$CONFIG_FILE','w') as f: json.dump(d,f,indent=2)" 2>/dev/null
-}
-
-cache_stale() {
-    local last="$1"
-    [[ -z "$last" ]] && return 0
-    python3 -c "import datetime
+is_stale() {
+    local ts="$1"
+    [[ -z "$ts" ]] && return 0
+    python3 -c "
+import datetime
 try:
- t=datetime.datetime.fromisoformat('$last'.replace('Z','+00:00'))
- delta=datetime.datetime.now(t.tzinfo)-t
- print('1' if delta.total_seconds()>$CACHE_TTL_MINUTES*60 else '0')
+    t = datetime.datetime.fromisoformat('$ts'.replace('Z','+00:00'))
+    delta = datetime.datetime.now(t.tzinfo) - t
+    print('1' if delta.total_seconds() > 3600 else '0')
 except: print('1')" 2>/dev/null | grep -q '1'
 }
 
-version_greater() {
-    local inst="$1" lat="$2"
-    [[ -z "$inst" || -z "$lat" ]] && return 1
-    python3 -c "import sys
-try: from packaging.version import Version as V
-except: from distutils.version import LooseVersion as V
-print('1' if V('$lat')>V('$inst') else '0')" 2>/dev/null | grep -q '1'
-}
+# ============================================================
+# Auto-Update — checks npm registry directly
+# ============================================================
+auto_update() {
+    echo -e "${GY}Auto-update check...${R}"
+    log "Auto-update check starting"
+    local did_work=0
 
-# --- Version Checkers ---
-get_codex_version() {
-    command -v codex &>/dev/null || return
-    local ver; ver=$(codex --version 2>/dev/null || true)
-    [[ "$ver" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo ""
-}
-
-get_codex_latest() {
-    local last; last=$(cache_get "codexLastChecked" "")
-    cache_stale "$last" || { cache_get "codexLatestVersion" ""; return; }
-    local resp; resp=$(curl -fsSL --max-time 15 "https://registry.npmjs.org/@openai/codex/latest" 2>/dev/null || true)
-    [[ -z "$resp" ]] && return
-    local ver; ver=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
-    [[ -n "$ver" ]] || return
-    cache_set "codexLatestVersion" "$ver"
-    cache_set "codexLastChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())')"
-    echo "$ver"
-}
-
-get_claude_version() {
-    command -v claude &>/dev/null || return
-    local ver; ver=$(claude --version 2>/dev/null || true)
-    [[ "$ver" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo ""
-}
-
-get_claude_latest() {
-    local last; last=$(cache_get "claudeLastChecked" "")
-    cache_stale "$last" || { cache_get "claudeLatestVersion" ""; return; }
-    local resp; resp=$(curl -fsSL --max-time 15 "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null || true)
-    [[ -z "$resp" ]] && return
-    local ver; ver=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
-    [[ -n "$ver" ]] || return
-    cache_set "claudeLatestVersion" "$ver"
-    cache_set "claudeLastChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())')"
-    echo "$ver"
-}
-
-# --- Installers ---
-install_codex() {
-    if ! command -v npm &>/dev/null; then
-        echo -e "${CLR_YELLOW}Node.js/npm required.${CLR_RESET}"
-        ask "Install Node.js via Homebrew? (y/n) " ans
-        [[ "$(lc "$ans")" != "y" ]] && return
-        command -v brew &>/dev/null || { echo -e "${CLR_RED}Homebrew not found. Install from https://brew.sh${CLR_RESET}"; return; }
-        brew install node 2>/dev/null || { echo -e "${CLR_RED}Failed.${CLR_RESET}"; return; }
-    fi
-    echo -e "${CLR_CYAN}Installing Codex CLI via npm...${CLR_RESET}"
-    npm install -g @openai/codex 2>/dev/null && echo -e "${CLR_GREEN}Done.${CLR_RESET}" || echo -e "${CLR_RED}Failed.${CLR_RESET}"
-    read -rp "Press Enter" || true
-}
-
-install_claude() {
-    echo -e "${CLR_CYAN}Installing/Updating Claude Code...${CLR_RESET}"
-    curl -fsSL https://claude.ai/install.sh | sh 2>/dev/null && echo -e "${CLR_GREEN}Done.${CLR_RESET}" || echo -e "${CLR_RED}Failed.${CLR_RESET}"
-    read -rp "Press Enter" || true
-}
-
-# --- DeepSeek Config ---
-set_api_key() {
-    clear
-    echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-    echo -e "${CLR_GREEN}   Set DeepSeek API Key${CLR_RESET}"
-    echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-    echo ""
-    local current; current=$(config_get "deepseekApiKey" "$DEFAULT_KEY")
-    if [[ -n "$current" ]]; then
-        echo -e "${CLR_CYAN}Current: ${current:0:4}****${CLR_RESET}"
+    # --- Claude Code ---
+    local claude_checked; claude_checked=$(cfg "claudeNpmChecked" "")
+    local claude_latest; claude_latest=$(cfg "claudeNpmLatest" "")
+    if is_stale "$claude_checked" || [[ -z "$claude_latest" ]]; then
+        log "Fetching Claude Code latest from npm..."
+        local resp; resp=$(curl -fsSL --max-time 10 "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null || true)
+        if [[ -n "$resp" ]]; then
+            claude_latest=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            if [[ -n "$claude_latest" ]]; then
+                json_set "claudeNpmLatest" "$claude_latest"
+                json_set "claudeNpmChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())' 2>/dev/null)"
+                log "Claude Code npm latest: $claude_latest"
+            fi
+        else
+            log "ERROR: offline, could not fetch Claude Code from npm"
+        fi
     else
-        echo -e "${CLR_YELLOW}No API key set.${CLR_RESET}"
+        log "Claude Code npm cache hit: $claude_latest"
     fi
+
+    if [[ -n "$claude_latest" ]]; then
+        if ! command -v claude &>/dev/null; then
+            echo -e "${YL}  Claude Code: installing v$claude_latest...${R}"
+            log "Claude Code not installed, installing v$claude_latest"
+            if command -v npm &>/dev/null; then
+                npm install -g @anthropic-ai/claude-code 2>/dev/null && sleep 3
+            fi
+            if command -v claude &>/dev/null; then
+                claude install "$claude_latest" 2>/dev/null && \
+                    echo -e "${GN}    Installed v$claude_latest${R}" && log "Claude Code install done" || \
+                    { echo -e "${RD}    claude install failed${R}"; log "ERROR: claude install failed"; }
+            else
+                log "npm install didn't work, trying shell installer"
+                curl -fsSL https://claude.ai/install.sh | sh 2>/dev/null && \
+                    echo -e "${GN}    Installed${R}" || echo -e "${RD}    Install failed${R}"
+            fi
+            did_work=1
+        else
+            local ci; ci=$(get_ver claude)
+            if [[ -n "$ci" && "$ci" != "$claude_latest" ]]; then
+                echo -e "${YL}  Claude Code: v$ci -> v$claude_latest${R}"
+                log "Claude Code update from v$ci to v$claude_latest"
+                claude install "$claude_latest" 2>/dev/null && \
+                    echo -e "${GN}    Updated to v$claude_latest${R}" && log "Claude Code update done" || \
+                    { echo -e "${RD}    Update failed${R}"; log "ERROR: Claude Code update failed"; }
+                did_work=1
+            fi
+        fi
+    else
+        echo -e "${GY}  Claude Code: offline, skipping.${R}"
+    fi
+
+    # --- Codex CLI ---
+    local codex_checked; codex_checked=$(cfg "codexNpmChecked" "")
+    local codex_latest; codex_latest=$(cfg "codexNpmLatest" "")
+    if is_stale "$codex_checked" || [[ -z "$codex_latest" ]]; then
+        log "Fetching Codex CLI latest from npm..."
+        local resp; resp=$(curl -fsSL --max-time 10 "https://registry.npmjs.org/@openai/codex/latest" 2>/dev/null || true)
+        if [[ -n "$resp" ]]; then
+            codex_latest=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            if [[ -n "$codex_latest" ]]; then
+                json_set "codexNpmLatest" "$codex_latest"
+                json_set "codexNpmChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())' 2>/dev/null)"
+                log "Codex CLI npm latest: $codex_latest"
+            fi
+        else
+            log "ERROR: offline, could not fetch Codex CLI from npm"
+        fi
+    else
+        log "Codex CLI npm cache hit: $codex_latest"
+    fi
+
+    if [[ -n "$codex_latest" ]] && command -v npm &>/dev/null; then
+        local ci; ci=$(get_ver codex)
+        if [[ -z "$ci" ]]; then
+            echo -e "${YL}  Codex CLI: installing v$codex_latest...${R}"
+            log "Codex CLI not installed, installing v$codex_latest"
+            npm install -g "@openai/codex@$codex_latest" 2>/dev/null && \
+                echo -e "${GN}    Installed v$codex_latest${R}" && log "Codex CLI install done" || \
+                { echo -e "${RD}    Install failed${R}"; log "ERROR: Codex CLI install failed"; }
+            did_work=1
+        elif [[ "$ci" != "$codex_latest" ]]; then
+            echo -e "${YL}  Codex CLI: v$ci -> v$codex_latest${R}"
+            log "Codex CLI update from v$ci to v$codex_latest"
+            npm install -g "@openai/codex@$codex_latest" 2>/dev/null && \
+                echo -e "${GN}    Updated to v$codex_latest${R}" && log "Codex CLI update done" || \
+                { echo -e "${RD}    Update failed${R}"; log "ERROR: Codex CLI update failed"; }
+            did_work=1
+        fi
+    fi
+
+    [[ $did_work -eq 0 ]] && echo -e "${GY}  All up to date.${R}"
     echo ""
-    echo -e "${CLR_CYAN}Get your key at: https://platform.deepseek.com/api_keys${CLR_RESET}"
-    echo ""
-    ask "Enter DeepSeek API key (or blank to keep current): " newKey
-    [[ -n "$newKey" ]] && { config_set "deepseekApiKey" "$newKey"; echo -e "${CLR_GREEN}Saved.${CLR_RESET}"; } || echo -e "${CLR_GRAY}Unchanged.${CLR_RESET}"
-    sleep 1
+    log "Auto-update complete. did_work=$did_work"
 }
 
-show_model_picker() {
-    while true; do
-        clear
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}   DeepSeek Model Selection${CLR_RESET}"
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo ""
-        echo -e "Current: ${CLR_CYAN}$(config_get 'deepseekModel' "$DEFAULT_MODEL")${CLR_RESET}"
-        echo ""
-        echo -e "  [1] DeepSeek V4 Pro (Recommended)  deepseek-v4-pro"
-        echo -e "  [2] DeepSeek V4 Flash               deepseek-v4-flash"
-        echo -e "  [M] Manual entry"
-        echo -e "  [K] Set API Key"
-        echo -e "  [B] Back"
-        echo ""
-        ask "Enter choice: " choice
-        case "$(lc "$choice")" in
-            1) config_set "deepseekModel" "deepseek-v4-pro"; echo -e "${CLR_GREEN}Selected: deepseek-v4-pro (V4 Pro)${CLR_RESET}"; sleep 1; return ;;
-            2) config_set "deepseekModel" "deepseek-v4-flash"; echo -e "${CLR_GREEN}Selected: deepseek-v4-flash (Flash)${CLR_RESET}"; sleep 1; return ;;
-            m) ask "Enter model ID: " m; [[ -n "$m" ]] && { config_set "deepseekModel" "$m"; echo -e "${CLR_GREEN}Model: $m${CLR_RESET}"; read -rp "Press Enter" || true; }; return ;;
-            k) set_api_key ;;
-            b) return ;;
-        esac
-    done
+# --- Status ---
+show_status() {
+    local has_claude="NO"; command -v claude &>/dev/null && has_claude="YES"
+    local has_codex="NO";  command -v codex &>/dev/null && has_codex="YES"
+    local claude_ver; claude_ver=$(get_ver claude)
+    local codex_ver;  codex_ver=$(get_ver codex)
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    local key_status="NOT SET"; [[ -n "$(cfg 'apikey' '')" ]] && key_status="SET"
+    local perms="ON"; [[ "$(cfg 'skipPerms' 'True')" != "True" ]] && perms="OFF"
+
+    echo -e "\n${CY}========== DeepSeek CLI Launcher ==========${R}"
+    if [[ "$has_claude" == "YES" && -n "$claude_ver" ]]; then echo -e "  Claude Code   : ${GN}v$claude_ver${R}"
+    else echo -e "  Claude Code   : ${GY}not installed${R}"; fi
+    if [[ "$has_codex" == "YES" && -n "$codex_ver" ]]; then echo -e "  Codex CLI     : ${GN}v$codex_ver${R}"
+    else echo -e "  Codex CLI     : ${GY}not installed${R}"; fi
+    [[ "$key_status" == "SET" ]] && echo -e "  DeepSeek Key  : ${GN}SET${R}" || echo -e "  DeepSeek Key  : ${RD}NOT SET${R}"
+    echo -e "  Model         : ${CY}$model${R}"
+    echo -e "  Skip Perms    : ${CY}$perms${R}"
+    echo -e "${CY}============================================${R}"
 }
 
 # --- Launch ---
 require_key() {
-    local k; k=$(config_get "deepseekApiKey" "$DEFAULT_KEY")
-    [[ -n "$k" ]] && return 0
-    echo -e "${CLR_RED}ERROR: DeepSeek API key not set. Use option 4.${CLR_RESET}"
+    [[ -n "$(cfg 'apikey' '')" ]] && return 0
+    echo -e "${RD}API key not set! Use option 5.${R}"
     read -rp "Press Enter" || true
     return 1
 }
 
-launch_codex_cli() {
+launch_claude() {
     require_key || return
-    command -v codex &>/dev/null || { echo -e "${CLR_YELLOW}Codex CLI not installed.${CLR_RESET}"; ask "Install? (y/n) " a; [[ "$(lc "$a")" == "y" ]] && install_codex || return; }
-    local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
-    export OPENAI_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-    export OPENAI_BASE_URL="https://api.deepseek.com/v1"
-    local -a cmd=("codex" "-c" "model_reasoning_effort=high")
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && cmd+=("--yolo")
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+    export ANTHROPIC_API_KEY="$(cfg 'apikey' '')"
+    export DISABLE_AUTOUPDATER=1
+    log "Launching Claude Code CLI ($model)"
+    local cmd=("claude")
+    [[ "$(cfg 'skipPerms' 'True')" == "True" ]] && cmd+=("--dangerously-skip-permissions")
     clear
-    echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
-    "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex exited with non-zero code.${CLR_RESET}"
+    echo -e "\n${GN}>>> claude (DeepSeek: $model)${R}"
+    "${cmd[@]}" || { echo -e "${YL}Exited with non-zero code.${R}"; log "Claude Code exited non-zero"; }
     read -rp "Session ended. Press Enter" || true
 }
 
-launch_claude_code() {
+launch_codex() {
     require_key || return
-    local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
-    export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
-    export ANTHROPIC_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-    local -a cmd=("claude")
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && cmd+=("--dangerously-skip-permissions")
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    export OPENAI_API_KEY="$(cfg 'apikey' '')"
+    export OPENAI_BASE_URL="https://api.deepseek.com/v1"
+    log "Launching Codex CLI ($model)"
+    local cmd=("codex" "-c" "model_reasoning_effort=high")
+    [[ "$(cfg 'skipPerms' 'True')" == "True" ]] && cmd+=("--yolo")
     clear
-    echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
-    "${cmd[@]}" || echo -e "${CLR_YELLOW}Claude Code exited with non-zero code.${CLR_RESET}"
+    echo -e "\n${GN}>>> codex (DeepSeek: $model)${R}"
+    "${cmd[@]}" || { echo -e "${YL}Exited with non-zero code.${R}"; log "Codex CLI exited non-zero"; }
     read -rp "Session ended. Press Enter" || true
 }
 
 launch_codex_app() {
     require_key || return
-    command -v codex &>/dev/null || { echo -e "${CLR_YELLOW}Codex CLI not installed.${CLR_RESET}"; ask "Install? (y/n) " a; [[ "$(lc "$a")" == "y" ]] && install_codex || return; }
-    local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
-    export DEEPSEEK_API_KEY="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-
-    # Use -c overrides (highest precedence) -- no file manipulation needed
-    local -a cmd=("codex" "app"
-        "-c" "model_provider=deepseek"
-        "-c" "model=$model"
-        "-c" "model_reasoning_effort=high"
-        "-c" "wire_api=chat")
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    export DEEPSEEK_API_KEY="$(cfg 'apikey' '')"
+    log "Launching Codex App ($model)"
+    local cmd=("codex" "app" "-c" "model_provider=deepseek" "-c" "model=$model"
+               "-c" "model_reasoning_effort=high" "-c" "wire_api=chat")
     clear
-    echo -e "\n${CLR_GREEN}>>> ${cmd[*]} (DeepSeek: $model)${CLR_RESET}"
-    "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
+    echo -e "\n${GN}>>> codex app (DeepSeek: $model)${R}"
+    "${cmd[@]}" || { echo -e "${YL}Exited with non-zero code.${R}"; log "Codex App exited non-zero"; }
     read -rp "Session ended. Press Enter" || true
 }
 
 launch_claude_desktop() {
     require_key || return
-    local model; model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    local api_key; api_key=$(cfg "apikey" "")
+    log "Launching Claude Desktop ($model)"
 
-    # Map DeepSeek model to a Claude model name that passes the whitelist.
-    # DeepSeek's /anthropic endpoint auto-maps:
-    #   claude-opus*              -> deepseek-v4-pro
-    #   claude-sonnet* / haiku*   -> deepseek-v4-flash
-    local claude_model="claude-sonnet-4-6"
-    case "$model" in
-        deepseek-v4-pro*)   claude_model="claude-opus-4-7" ;;
-        deepseek-v4-flash*)  claude_model="claude-sonnet-4-6" ;;
-    esac
-
-    # Kill any running Claude Desktop (GUI .app only, not CLI) so it starts fresh
-    echo -e "\n${CLR_CYAN}Preparing Claude Desktop for third-party mode...${CLR_RESET}"
+    echo -e "\n${CY}Preparing Claude Desktop...${R}"
     pkill -f "/Applications/Claude.*\.app/Contents/MacOS/Claude" 2>/dev/null || true
     sleep 2
+    log "Killed existing Claude Desktop (if any)"
 
-    # Clear OAuth session so Claude Desktop reads the 3p config instead of auto-login
-    local claude_cfg="$HOME/Library/Application Support/Claude/config.json"
-    if [[ -f "$claude_cfg" ]]; then
-        python3 -c "
-import json, os
-try:
- with open('$claude_cfg') as f: d=json.load(f)
- d.pop('oauth:tokenCache', None)
- with open('$claude_cfg','w') as f: json.dump(d, f, indent=2)
-except: pass" 2>/dev/null
-        echo -e "${CLR_GRAY}  Cleared OAuth session${CLR_RESET}"
-    fi
-
-    # Write 3p config to configLibrary (primary method for modern Claude Desktop)
-    local api_key; api_key="$(config_get 'deepseekApiKey' "$DEFAULT_KEY")"
-    local config_id; config_id=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
-    local lib_dir="$HOME/Library/Application Support/Claude-3p/configLibrary"
-    mkdir -p "$lib_dir"
+    local cid; cid=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
+    local lib="$HOME/Library/Application Support/Claude-3p/configLibrary"
+    mkdir -p "$lib"
 
     python3 -c "
 import json, os
-lib = '$lib_dir'
-cid = '$config_id'
+lib = '$lib'
+cid = '$cid'
 model_defs = [
-    {'name': 'claude-opus-4-7',          'label': 'DeepSeek V4 Pro (Opus 4.7)'},
-    {'name': 'claude-opus-4-6',          'label': 'DeepSeek V4 Pro (Opus 4.6)'},
-    {'name': 'claude-sonnet-4-6',        'label': 'DeepSeek V4 Flash (Sonnet 4.6)'},
-    {'name': 'claude-haiku-4-5-20251001', 'label': 'DeepSeek V4 Flash (Haiku 4.5)'},
+    {'name': 'claude-opus-4-7',           'labelOverride': 'DeepSeek V4 Pro (Opus 4.7)'},
+    {'name': 'claude-opus-4-6',           'labelOverride': 'DeepSeek V4 Pro (Opus 4.6)'},
+    {'name': 'claude-sonnet-4-6',         'labelOverride': 'DeepSeek V4 Flash (Sonnet 4.6)'},
+    {'name': 'claude-haiku-4-5-20251001', 'labelOverride': 'DeepSeek V4 Flash (Haiku 4.5)'},
 ]
-# Order so the user's preferred model is first (default in the picker)
-ordered_names = ['$claude_model'] + [d['name'] for d in model_defs if d['name'] != '$claude_model']
-seen = set()
-models = []
-for name in ordered_names:
-    if name in seen: continue
-    seen.add(name)
-    match = next((d for d in model_defs if d['name'] == name), None)
-    if match:
-        models.append({'name': match['name'], 'labelOverride': match['label']})
-    else:
-        models.append({'name': name})
-
 meta = {'appliedId': cid, 'entries': [{'id': cid, 'name': 'DeepSeek Gateway'}]}
-with open(os.path.join(lib, '_meta.json'), 'w') as f:
-    json.dump(meta, f, indent=2)
-
+with open(os.path.join(lib, '_meta.json'), 'w') as f: json.dump(meta, f, indent=2)
 config = {
     'inferenceProvider': 'gateway',
     'inferenceGatewayBaseUrl': 'https://api.deepseek.com/anthropic',
     'inferenceGatewayApiKey': '$api_key',
     'inferenceGatewayAuthScheme': 'bearer',
-    'inferenceModels': models,
-    'disableEssentialTelemetry': True,
-    'disableNonessentialTelemetry': True,
-    'disableNonessentialServices': True,
-    'unstableDisableModelVerification': True,
+    'inferenceModels': model_defs,
+    'disableEssentialTelemetry': True, 'disableNonessentialTelemetry': True,
+    'disableNonessentialServices': True, 'unstableDisableModelVerification': True,
     'builtinToolPolicy': {
         'Bash': 'allow', 'Read': 'allow', 'Write': 'allow', 'Edit': 'allow',
         'Glob': 'allow', 'Grep': 'allow', 'NotebookEdit': 'allow',
@@ -344,178 +295,135 @@ config = {
         'Skill': 'allow', 'AskUserQuestion': 'allow', 'SendUserMessage': 'allow'
     }
 }
-with open(os.path.join(lib, cid + '.json'), 'w') as f:
-    json.dump(config, f, indent=2)
-
-# Also write claude_desktop_config.json (legacy compat)
+with open(os.path.join(lib, cid + '.json'), 'w') as f: json.dump(config, f, indent=2)
+# 3p config
 config3p = {
     'deploymentMode': '3p',
-    'enterpriseConfig': {k: v for k, v in config.items() if k != 'unstableDisableModelVerification'},
-    'preferences': {
-        'secureVmFeaturesEnabled': True,
-        'coworkScheduledTasksEnabled': True,
-        'ccdScheduledTasksEnabled': True,
-        'sidebarMode': 'epitaxy',
-        'coworkWebSearchEnabled': True
-    }
+    'enterpriseConfig': {k:v for k,v in config.items() if k != 'unstableDisableModelVerification'}
 }
-paths3p = [
-    os.path.join(os.path.expanduser('~/Library/Application Support/Claude-3p'), 'claude_desktop_config.json'),
-]
-for p in paths3p:
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, 'w') as f:
-        json.dump(config3p, f, indent=2)
+p3p = os.path.join(os.path.expanduser('~/Library/Application Support/Claude-3p'), 'claude_desktop_config.json')
+os.makedirs(os.path.dirname(p3p), exist_ok=True)
+with open(p3p, 'w') as f: json.dump(config3p, f, indent=2)
 " 2>/dev/null
-    echo -e "${CLR_GRAY}  Wrote 3p config (configLibrary + claude_desktop_config.json)${CLR_RESET}"
+    log "Wrote 3p config"
 
-    export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
-    export ANTHROPIC_API_KEY="$api_key"
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="$claude_model"
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="$claude_model"
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$claude_model"
-    export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
+    # Clear OAuth
+    local cfg_path="$HOME/Library/Application Support/Claude/config.json"
+    [[ -f "$cfg_path" ]] && python3 -c "
+import json; d=json.load(open('$cfg_path'))
+for k in ['oauth:tokenCache','oauth:refreshToken','oauth:accountId','oauth:accessToken',
+          'oauth:expiresAt','oauth:token','activeAccountId','activeOrgId',
+          'authSession','lastSignedInAccount','oauthTokens']:
+    d.pop(k, None)
+json.dump(d, open('$cfg_path','w'), indent=2)" 2>/dev/null && log "Cleared OAuth session"
 
-    echo -e "\n${CLR_GREEN}Launching Claude Code Desktop with DeepSeek: $model${CLR_RESET}"
-    echo -e "${CLR_GRAY}  (using Claude model name '$claude_model' for compatibility)${CLR_RESET}"
-    echo -e "${CLR_CYAN}  Look for 'Continue with Gateway' on the sign-in screen${CLR_RESET}"
+    echo -e "${GY}  Config written. Look for 'Continue with Gateway' at sign-in.${R}"
+    echo -e "${GN}Launching Claude Desktop...${R}"
     open -a Claude 2>/dev/null || open -a "Claude Code" 2>/dev/null || {
-        echo -e "${CLR_RED}Claude Desktop not found. Install from https://claude.ai/download${CLR_RESET}"
+        echo -e "${RD}Claude Desktop not found. Install: https://claude.ai/download${R}"
+        log "ERROR: Claude Desktop not found"
         read -rp "Press Enter" || true
     }
 }
 
-# --- Status & Menu ---
-show_status() {
-    local cCodex="NO"; command -v codex &>/dev/null && cCodex="YES"
-    local cClaude="NO"; command -v claude &>/dev/null && cClaude="YES"
-    local model keyStatus
-    model=$(config_get "deepseekModel" "$DEFAULT_MODEL")
-    [[ -n "$(config_get 'deepseekApiKey' "$DEFAULT_KEY")" ]] && keyStatus="${CLR_GREEN}SET${CLR_RESET}" || keyStatus="${CLR_RED}NOT SET${CLR_RESET}"
-
-    echo -e "\n${CLR_CYAN}========== DeepSeek CLI Launcher ==========${CLR_RESET}"
-    if [[ "$cCodex" == "YES" ]]; then
-        local ci cl; ci=$(get_codex_version); cl=$(get_codex_latest)
-        if [[ -n "$ci" && -n "$cl" ]] && version_greater "$ci" "$cl"; then
-            echo -e "  Codex CLI     : ${CLR_YELLOW}v$ci (update v$cl available)${CLR_RESET}"
-        else
-            echo -e "  Codex CLI     : ${CLR_GREEN}v$ci (up to date)${CLR_RESET}"
-        fi
-    else
-        echo -e "  Codex CLI     : ${CLR_GRAY}NOT INSTALLED${CLR_RESET}"
+# --- Settings ---
+set_api_key() {
+    clear
+    echo -e "${GN}========== Set DeepSeek API Key ==========${R}\n"
+    local cur; cur=$(cfg "apikey" "")
+    [[ -n "$cur" ]] && echo -e "${CY}Current key: ${cur:0:4}****${R}\n" || echo -e "${YL}No API key set.${R}\n"
+    echo -e "${CY}Get key at: https://platform.deepseek.com/api_keys${R}\n"
+    ask "Enter API key (blank to keep current): " key
+    if [[ -n "$key" ]]; then
+        json_set "apikey" "$key"
+        echo -e "${GN}Saved.${R}"
+        log "API key updated"
     fi
-    if [[ "$cClaude" == "YES" ]]; then
-        local ci cl; ci=$(get_claude_version); cl=$(get_claude_latest)
-        if [[ -n "$ci" && -n "$cl" ]] && version_greater "$ci" "$cl"; then
-            echo -e "  Claude Code   : ${CLR_YELLOW}v$ci (update v$cl available)${CLR_RESET}"
-        else
-            echo -e "  Claude Code   : ${CLR_GREEN}v$ci (up to date)${CLR_RESET}"
-        fi
-    else
-        echo -e "  Claude Code   : ${CLR_GRAY}NOT INSTALLED${CLR_RESET}"
-    fi
-    echo -e "  DeepSeek Model: ${CLR_CYAN}$model${CLR_RESET}"
-    echo -e "  DeepSeek Key  : $keyStatus"
-    local permText
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
-    echo -e "  Skip-perms    : ${CLR_CYAN}$permText${CLR_RESET}"
-    echo -e "${CLR_CYAN}==========================================${CLR_RESET}"
+    sleep 1
 }
 
+pick_model() {
+    clear
+    echo -e "${GN}========== Pick Model ==========${R}\n"
+    echo -e "Current: ${CY}$(cfg 'model' "$DEFAULT_MODEL")${R}\n"
+    echo -e "  [1] DeepSeek V4 Pro  (deepseek-v4-pro)"
+    echo -e "  [2] DeepSeek V4 Flash (deepseek-v4-flash)"
+    echo -e "  [M] Manual entry\n"
+    ask "Choice: " choice
+    case "$(lc "$choice")" in
+        1) json_set "model" "deepseek-v4-pro"; echo -e "${GN}Model: deepseek-v4-pro${R}"; log "Model changed: deepseek-v4-pro" ;;
+        2) json_set "model" "deepseek-v4-flash"; echo -e "${GN}Model: deepseek-v4-flash${R}"; log "Model changed: deepseek-v4-flash" ;;
+        m) ask "Enter model ID: " m; [[ -n "$m" ]] && { json_set "model" "$m"; echo -e "${GN}Model: $m${R}"; log "Model changed: $m"; read -rp "Press Enter" || true; } ;;
+    esac
+    sleep 1
+}
+
+# --- Menu ---
 show_main_menu() {
     clear
     show_status
-    local cCodex="NO"; command -v codex &>/dev/null && cCodex="YES"
-    local cClaude="NO"; command -v claude &>/dev/null && cClaude="YES"
-    local hasKey=0; [[ -n "$(config_get 'deepseekApiKey' "$DEFAULT_KEY")" ]] && hasKey=1
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    local perms="ON"; [[ "$(cfg 'skipPerms' 'True')" != "True" ]] && perms="OFF"
 
-    echo -e "\n[1] Install / Update Codex CLI ${CLR_WHITE}"
-    [[ "$cCodex" == "YES" ]] && {
-        local ci cl; ci=$(get_codex_version); cl=$(get_codex_latest)
-        [[ -n "$ci" && -n "$cl" ]] && version_greater "$ci" "$cl" && echo -e "${CLR_YELLOW}     ^^ UPDATE AVAILABLE${CLR_RESET}"
-    }
-    echo -e "[2] Install / Update Claude Code ${CLR_WHITE}"
-    [[ "$cClaude" == "YES" ]] && {
-        local ci cl; ci=$(get_claude_version); cl=$(get_claude_latest)
-        [[ -n "$ci" && -n "$cl" ]] && version_greater "$ci" "$cl" && echo -e "${CLR_YELLOW}     ^^ UPDATE AVAILABLE${CLR_RESET}"
-    }
-    echo -e "[3] Pick DeepSeek Model [current: $(config_get 'deepseekModel' "$DEFAULT_MODEL")] ${CLR_WHITE}"
-    echo -e "[4] Set DeepSeek API Key ${CLR_WHITE}"
-    [[ "$cCodex" == "YES" && "$hasKey" == "1" ]] && echo -e "[5] Launch Codex CLI (via DeepSeek) ${CLR_GREEN}" || echo -e "[5] Launch Codex CLI [not available] ${CLR_GRAY}"
-    [[ "$cClaude" == "YES" && "$hasKey" == "1" ]] && echo -e "[6] Launch Claude Code CLI (via DeepSeek) ${CLR_GREEN}" || echo -e "[6] Launch Claude Code CLI [not available] ${CLR_GRAY}"
-    [[ "$cCodex" == "YES" && "$hasKey" == "1" ]] && echo -e "[7] Launch Codex App (via DeepSeek) ${CLR_GREEN}" || echo -e "[7] Launch Codex App [not available] ${CLR_GRAY}"
-    if [[ -d /Applications/Claude.app ]] || [[ -d /Applications/Claude\ Code.app ]]; then
-        [[ "$hasKey" == "1" ]] && echo -e "[8] Launch Claude Code Desktop (via DeepSeek) ${CLR_GREEN}" || echo -e "[8] Launch Claude Desktop [API key not set] ${CLR_GRAY}"
-    else
-        echo -e "[8] Launch Claude Desktop [not installed] ${CLR_GRAY}"
-    fi
-    echo -e "[C] Clear Version Cache ${CLR_WHITE}"
-    local permText
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
-    echo -e "[T] Toggle Permission Bypass [currently: $permText] ${CLR_WHITE}"
-    echo -e "[Q] Quit ${CLR_MAGENTA}"
+    echo ""
+    echo -e "[1] Launch Claude Code          ${GN}${R}"
+    echo -e "[2] Launch Codex CLI            ${GN}${R}"
+    echo -e "[3] Launch Codex App            ${GN}${R}"
+    echo -e "[4] Launch Claude Desktop       ${GN}${R}"
+    echo -e "[5] Set DeepSeek API Key        ${WH}${R}"
+    echo -e "[6] Pick Model [current: $model] ${WH}${R}"
+    echo -e "[T] Toggle Permissions [$perms]     ${WH}${R}"
+    echo -e "[L] View Log                    ${WH}${R}"
+    echo -e "[Q] Quit                        ${MG}${R}"
     echo ""
 }
 
-# --- Main ---
-ensure_config
+# ============================================================
+# Run
+# ============================================================
+[[ -f "$CONFIG_FILE" ]] || python3 -c "
+import json
+json.dump({'model':'$DEFAULT_MODEL','apikey':'','skipPerms':True,
+           'claudeNpmLatest':'','claudeNpmChecked':'','codexNpmLatest':'','codexNpmChecked':''},
+          open('$CONFIG_FILE','w'), indent=2)" 2>/dev/null
+
+if auto_update 2>/dev/null; then :; else
+    log "FATAL: auto-update crashed"
+    echo -e "${RD}Auto-update error (continuing anyway)${R}"
+fi
 
 if [[ $# -gt 0 ]]; then
-    local k; k=$(config_get "deepseekApiKey" "$DEFAULT_KEY")
-    [[ -z "$k" ]] && { echo -e "${CLR_RED}DeepSeek API key not set. Run launcher to configure.${CLR_RESET}"; exit 1; }
+    [[ -z "$(cfg 'apikey' '')" ]] && { echo -e "${RD}API key not set. Run without args to configure.${R}"; exit 1; }
+    log "Direct launch: $1"
     case "$(lc "$1")" in
-        codex)           launch_codex_cli; exit $? ;;
-        claude)          launch_claude_code; exit $? ;;
-        codex-app)       launch_codex_app; exit $? ;;
-        claude-desktop)  launch_claude_desktop; exit $? ;;
+        codex)          launch_codex; exit $? ;;
+        claude)         launch_claude; exit $? ;;
+        codex-app)      launch_codex_app; exit $? ;;
+        claude-desktop) launch_claude_desktop; exit $? ;;
     esac
 fi
 
 while true; do
     show_main_menu
-    ask "Enter choice: " choice
+    ask "Choice: " choice
+    log "Menu choice: $choice"
     case "$(lc "$choice")" in
-        1)
-            if command -v codex &>/dev/null; then
-                local ci cl; ci=$(get_codex_version); cl=$(get_codex_latest)
-                [[ -n "$ci" && -n "$cl" ]] && version_greater "$ci" "$cl" && {
-                    echo -e "${CLR_YELLOW}Codex update: v$ci -> v$cl${CLR_RESET}"
-                    ask "Update now? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_codex
-                } || { ask "Codex is up to date. Reinstall? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_codex; }
-            else
-                ask "Install Codex CLI now? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_codex
-            fi
-            read -rp "Press Enter" || true
-            ;;
-        2)
-            if command -v claude &>/dev/null; then
-                local ci cl; ci=$(get_claude_version); cl=$(get_claude_latest)
-                [[ -n "$ci" && -n "$cl" ]] && version_greater "$ci" "$cl" && {
-                    echo -e "${CLR_YELLOW}Claude Code update: v$ci -> v$cl${CLR_RESET}"
-                    ask "Update now? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_claude
-                } || { ask "Claude Code is up to date. Reinstall? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_claude; }
-            else
-                ask "Install Claude Code now? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_claude
-            fi
-            read -rp "Press Enter" || true
-            ;;
-        3) show_model_picker ;;
-        4) set_api_key ;;
-        5) launch_codex_cli ;;
-        6) launch_claude_code ;;
-        7) launch_codex_app ;;
-        8) launch_claude_desktop ;;
-        c)
-            cache_set "codexLastChecked" ""; cache_set "claudeLastChecked" ""
-            echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1
-            ;;
-        t)
-            local sp; sp=$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")
-            [[ "$sp" == "True" ]] && config_set "skipPermissions" "False" || config_set "skipPermissions" "True"
-            [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && echo -e "${CLR_GREEN}Mode: SKIP-PERMISSIONS${CLR_RESET}" || echo -e "${CLR_GREEN}Mode: NORMAL${CLR_RESET}"
-            sleep 1
-            ;;
-        q) echo -e "${CLR_GREEN}Goodbye!${CLR_RESET}"; exit 0 ;;
-        *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
+        1) launch_claude ;;
+        2) launch_codex ;;
+        3) launch_codex_app ;;
+        4) launch_claude_desktop ;;
+        5) set_api_key ;;
+        6) pick_model ;;
+        t) local sp; sp=$(cfg "skipPerms" "True")
+           [[ "$sp" == "True" ]] && json_set "skipPerms" "False" || json_set "skipPerms" "True"
+           log "Permissions toggled" ;;
+        l)
+            clear
+            echo -e "${CY}========== Log File ==========${R}"
+            echo -e "Path: $LOG_FILE"
+            echo ""
+            if [[ -f "$LOG_FILE" ]]; then tail -40 "$LOG_FILE"; else echo -e "${YL}No log file yet.${R}"; fi
+            echo ""; read -rp "Press Enter" || true ;;
+        q) echo -e "${GN}Bye!${R}"; log "User quit"; exit 0 ;;
     esac
 done

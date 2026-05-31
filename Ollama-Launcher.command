@@ -3,390 +3,387 @@ set -euo pipefail
 
 # ============================================================
 #  Ollama CLI Launcher for macOS
-#  Codex CLI + Claude Code through Ollama
-#  Interactive menu + direct launch with model picker.
+#  Auto-updates Ollama + Claude Code + Codex CLI, then menu
 # ============================================================
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/sbin:$PATH"
-
-if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
-    exec < /dev/tty
-fi
+[[ ! -t 0 ]] && [[ -e /dev/tty ]] && exec < /dev/tty
 
 if ! command -v python3 &>/dev/null; then
     echo "ERROR: python3 required. Install Xcode CLI tools: xcode-select --install"
     exit 1
 fi
 
-# Resolve script/config directory
 SCRIPT_DIR="$HOME/Documents/cli-launchers"
 mkdir -p "$SCRIPT_DIR"
-
 CONFIG_FILE="$SCRIPT_DIR/Ollama-Launcher.config.json"
-VERSION_CACHE="$SCRIPT_DIR/Ollama-Launcher.versions.json"
-CACHE_TTL_MINUTES=60
+LOG_FILE="$SCRIPT_DIR/launcher.log"
 
 DEFAULT_MODEL="kimi-k2.6:cloud"
-DEFAULT_SOURCE="cloud"
-DEFAULT_SKIPPERMS="true"
 
-# --- Colors ---
-CLR_RESET='\033[0m'; CLR_RED='\033[1;31m'; CLR_GREEN='\033[1;32m'
-CLR_YELLOW='\033[1;33m'; CLR_CYAN='\033[1;36m'; CLR_MAGENTA='\033[1;35m'
-CLR_WHITE='\033[1;37m'; CLR_GRAY='\033[0;37m'
+R='\033[0m'; RD='\033[1;31m'; GN='\033[1;32m'; YL='\033[1;33m'
+CY='\033[1;36m'; MG='\033[1;35m'; WH='\033[1;37m'; GY='\033[0;37m'
 
 lc() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 ask() { printf -v "$2" '%s' ''; read -rp "$1" "$2" || true; }
 
-# --- JSON Helpers ---
-json_read() {
+# --- Logging ---
+log() {
+    local ts; ts=$(date "+%Y-%m-%d %H:%M:%S")
+    echo "[$ts] $1" >> "$LOG_FILE" 2>/dev/null || true
+    if [[ -f "$LOG_FILE" ]]; then
+        local sz; sz=$(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+        [[ $sz -gt 1048576 ]] && mv "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
+    fi
+}
+log "========== Ollama Launcher (macOS) started =========="
+
+# --- JSON helpers ---
+json_get() {
     local file="$1" key="$2" default="${3:-}"
-    [[ ! -f "$file" ]] && echo "$default" && return
-    python3 -c "import json,sys
-try:
- with open('$file') as f: d=json.load(f)
- v=d.get('$key'); print(v if v is not None else '$default')
-except: print('$default')" 2>/dev/null || echo "$default"
+    [[ ! -f "$file" ]] && { echo "$default"; return; }
+    python3 -c "import json; d=json.load(open('$file')); print(d.get('$key','$default'))" 2>/dev/null || echo "$default"
 }
-
-config_get() { json_read "$CONFIG_FILE" "$1" "$2"; }
-config_set() {
-    local key="$1" val="$2"
-    python3 -c "import json,os
-d={}
+json_set() {
+    python3 -c "
+import json, os
+d = {}
 if os.path.exists('$CONFIG_FILE'):
- try:
-  with open('$CONFIG_FILE') as f: d=json.load(f)
- except: d={}
-d['$key']='$val'
-with open('$CONFIG_FILE','w') as f: json.dump(d,f,indent=2)" 2>/dev/null
+    try: d = json.load(open('$CONFIG_FILE'))
+    except: pass
+d['$1'] = '$2'
+json.dump(d, open('$CONFIG_FILE','w'), indent=2)" 2>/dev/null
+}
+cfg() { json_get "$CONFIG_FILE" "$1" "$2"; }
+
+get_ver() {
+    command -v "$1" &>/dev/null || { echo ""; return; }
+    local v; v=$("$1" --version 2>/dev/null || true)
+    [[ "$v" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo ""
 }
 
-cache_get() { json_read "$VERSION_CACHE" "$1" "$2"; }
-cache_set() {
-    local key="$1" val="$2"
-    python3 -c "import json,os
-d={}
-if os.path.exists('$VERSION_CACHE'):
- try:
-  with open('$VERSION_CACHE') as f: d=json.load(f)
- except: d={}
-d['$key']='$val'
-with open('$VERSION_CACHE','w') as f: json.dump(d,f,indent=2)" 2>/dev/null
-}
-
-ensure_config() {
-    [[ -f "$CONFIG_FILE" ]] && return
-    python3 -c "import json
-d={'selectedModel':'$DEFAULT_MODEL','source':'$DEFAULT_SOURCE','skipPermissions':True}
-with open('$CONFIG_FILE','w') as f: json.dump(d,f,indent=2)" 2>/dev/null
-}
-
-cache_stale() {
-    local last="$1"
-    [[ -z "$last" ]] && return 0
-    python3 -c "import datetime
+is_stale() {
+    local ts="$1"
+    [[ -z "$ts" ]] && return 0
+    python3 -c "
+import datetime
 try:
- t=datetime.datetime.fromisoformat('$last'.replace('Z','+00:00'))
- delta=datetime.datetime.now(t.tzinfo)-t
- print('1' if delta.total_seconds()>$CACHE_TTL_MINUTES*60 else '0')
+    t = datetime.datetime.fromisoformat('$ts'.replace('Z','+00:00'))
+    delta = datetime.datetime.now(t.tzinfo) - t
+    print('1' if delta.total_seconds() > 3600 else '0')
 except: print('1')" 2>/dev/null | grep -q '1'
 }
 
-version_greater() {
-    local inst="$1" lat="$2"
-    [[ -z "$inst" || -z "$lat" ]] && return 1
-    python3 -c "import sys
-try: from packaging.version import Version as V
-except: from distutils.version import LooseVersion as V
-print('1' if V('$lat')>V('$inst') else '0')" 2>/dev/null | grep -q '1'
-}
-
-# --- Version Checkers ---
-get_ollama_installed_version() {
-    command -v ollama &>/dev/null || return
-    local ver; ver=$(ollama --version 2>/dev/null || true)
-    [[ "$ver" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo ""
-}
-
-get_ollama_latest_version() {
-    local last; last=$(cache_get "ollamaLastChecked" "")
-    cache_stale "$last" || { cache_get "ollamaLatestVersion" ""; return; }
-    local resp; resp=$(curl -fsSL --max-time 15 "https://api.github.com/repos/ollama/ollama/releases/latest" 2>/dev/null || true)
-    [[ -z "$resp" ]] && return
-    local tag; tag=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null || true)
-    local ver="${tag#v}"
-    [[ -n "$ver" ]] || return
-    cache_set "ollamaLatestVersion" "$ver"
-    cache_set "ollamaLastChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())')"
-    echo "$ver"
-}
-
-# --- Install ---
-install_ollama() {
-    echo -e "${CLR_CYAN}Installing/Updating Ollama...${CLR_RESET}"
-    curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null || echo -e "${CLR_RED}ERROR installing Ollama.${CLR_RESET}"
-    read -rp "Press Enter to continue" || true
-}
-
-# --- Ollama Server ---
-test_ollama_running() {
-    curl -fsSL --max-time 3 "http://localhost:11434/api/tags" &>/dev/null && return 0 || return 1
-}
-
-start_ollama_server() {
-    test_ollama_running && return 0
-    echo -e "${CLR_YELLOW}Starting Ollama server...${CLR_RESET}"
+# --- Server ---
+ollama_running() { curl -fsSL --max-time 3 "http://localhost:11434/api/tags" &>/dev/null; }
+start_ollama() {
+    ollama_running && return 0
+    echo -e "${YL}Starting Ollama server...${R}"
+    log "Starting Ollama server"
     nohup ollama serve &>/dev/null &
     local tries=0
     while [[ $tries -lt 30 ]]; do
-        sleep 0.5
-        test_ollama_running && { echo -e "${CLR_GREEN}Ollama server ready.${CLR_RESET}"; return 0; }
+        sleep 0.5; ollama_running && { echo -e "${GN}Ollama server ready.${R}"; log "Ollama server started"; return 0; }
         ((tries++))
     done
-    echo -e "${CLR_RED}Ollama server did not start.${CLR_RESET}"
+    echo -e "${RD}Ollama server did not start.${R}"
+    log "Ollama server start timeout"
     return 1
 }
 
-test_ollama_auth() { ollama list &>/dev/null && return 0 || return 1; }
+# ============================================================
+# Auto-Update
+# ============================================================
+auto_update() {
+    echo -e "${GY}Auto-update check...${R}"
+    log "Auto-update check starting"
+    local did_work=0
 
-# --- Model Fetchers ---
-fetch_cloud_models() {
-    echo -e "${CLR_GRAY}Fetching newest models from Ollama registry...${CLR_RESET}"
+    # --- Ollama (GitHub releases) ---
+    local o_checked; o_checked=$(cfg "ollamaChecked" "")
+    local o_latest; o_latest=$(cfg "ollamaLatest" "")
+    if is_stale "$o_checked" || [[ -z "$o_latest" ]]; then
+        log "Fetching Ollama latest from GitHub..."
+        local resp; resp=$(curl -fsSL --max-time 10 "https://api.github.com/repos/ollama/ollama/releases/latest" 2>/dev/null || true)
+        if [[ -n "$resp" ]]; then
+            o_latest=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name','').lstrip('v'))" 2>/dev/null || true)
+            if [[ -n "$o_latest" ]]; then
+                json_set "ollamaLatest" "$o_latest"
+                json_set "ollamaChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())' 2>/dev/null)"
+                log "Ollama latest: $o_latest"
+            fi
+        else
+            log "ERROR: offline, could not fetch Ollama"
+        fi
+    else
+        log "Ollama cache hit: $o_latest"
+    fi
+
+    if command -v ollama &>/dev/null && [[ -n "$o_latest" ]]; then
+        local oi; oi=$(get_ver ollama)
+        if [[ -n "$oi" && "$oi" != "$o_latest" ]]; then
+            echo -e "${YL}  Ollama: v$oi -> v$o_latest${R}"
+            log "Ollama update from v$oi to v$o_latest"
+            curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null && echo -e "${GN}    Updated${R}" || echo -e "${RD}    Failed${R}"
+            did_work=1
+        fi
+    elif ! command -v ollama &>/dev/null; then
+        echo -e "${YL}  Ollama: installing...${R}"
+        log "Ollama not installed, installing"
+        curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null && echo -e "${GN}    Installed${R}" || echo -e "${RD}    Failed${R}"
+        did_work=1
+    fi
+
+    # --- Claude Code (npm) ---
+    local c_checked; c_checked=$(cfg "claudeNpmChecked" "")
+    local c_latest; c_latest=$(cfg "claudeNpmLatest" "")
+    if is_stale "$c_checked" || [[ -z "$c_latest" ]]; then
+        log "Fetching Claude Code latest from npm..."
+        local resp; resp=$(curl -fsSL --max-time 10 "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null || true)
+        if [[ -n "$resp" ]]; then
+            c_latest=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            if [[ -n "$c_latest" ]]; then
+                json_set "claudeNpmLatest" "$c_latest"
+                json_set "claudeNpmChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())' 2>/dev/null)"
+                log "Claude Code npm latest: $c_latest"
+            fi
+        else
+            log "ERROR: offline, could not fetch Claude Code"
+        fi
+    else
+        log "Claude Code npm cache hit: $c_latest"
+    fi
+
+    if [[ -n "$c_latest" ]]; then
+        if ! command -v claude &>/dev/null; then
+            echo -e "${YL}  Claude Code: installing v$c_latest...${R}"
+            log "Claude Code not installed, installing v$c_latest"
+            if command -v npm &>/dev/null; then npm install -g @anthropic-ai/claude-code 2>/dev/null && sleep 3; fi
+            if command -v claude &>/dev/null; then claude install "$c_latest" 2>/dev/null && echo -e "${GN}    Installed${R}" || echo -e "${RD}    Failed${R}"; fi
+            did_work=1
+        else
+            local ci; ci=$(get_ver claude)
+            if [[ -n "$ci" && "$ci" != "$c_latest" ]]; then
+                echo -e "${YL}  Claude Code: v$ci -> v$c_latest${R}"
+                log "Claude Code update from v$ci to v$c_latest"
+                claude install "$c_latest" 2>/dev/null && echo -e "${GN}    Updated${R}" || echo -e "${RD}    Failed${R}"
+                did_work=1
+            fi
+        fi
+    fi
+
+    # --- Codex CLI (npm) ---
+    local x_checked; x_checked=$(cfg "codexNpmChecked" "")
+    local x_latest; x_latest=$(cfg "codexNpmLatest" "")
+    if is_stale "$x_checked" || [[ -z "$x_latest" ]]; then
+        log "Fetching Codex CLI latest from npm..."
+        local resp; resp=$(curl -fsSL --max-time 10 "https://registry.npmjs.org/@openai/codex/latest" 2>/dev/null || true)
+        if [[ -n "$resp" ]]; then
+            x_latest=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            if [[ -n "$x_latest" ]]; then
+                json_set "codexNpmLatest" "$x_latest"
+                json_set "codexNpmChecked" "$(python3 -c 'import datetime; print(datetime.datetime.now().isoformat())' 2>/dev/null)"
+                log "Codex CLI npm latest: $x_latest"
+            fi
+        else
+            log "ERROR: offline, could not fetch Codex CLI"
+        fi
+    else
+        log "Codex CLI npm cache hit: $x_latest"
+    fi
+
+    if [[ -n "$x_latest" ]] && command -v npm &>/dev/null; then
+        local xi; xi=$(get_ver codex)
+        if [[ -z "$xi" ]]; then
+            echo -e "${YL}  Codex CLI: installing v$x_latest...${R}"
+            log "Codex CLI not installed, installing v$x_latest"
+            npm install -g "@openai/codex@$x_latest" 2>/dev/null && echo -e "${GN}    Installed${R}" || echo -e "${RD}    Failed${R}"
+            did_work=1
+        elif [[ "$xi" != "$x_latest" ]]; then
+            echo -e "${YL}  Codex CLI: v$xi -> v$x_latest${R}"
+            log "Codex CLI update from v$xi to v$x_latest"
+            npm install -g "@openai/codex@$x_latest" 2>/dev/null && echo -e "${GN}    Updated${R}" || echo -e "${RD}    Failed${R}"
+            did_work=1
+        fi
+    fi
+
+    [[ $did_work -eq 0 ]] && echo -e "${GY}  All up to date.${R}"
+    echo ""
+    log "Auto-update complete. did_work=$did_work"
+}
+
+# --- Status ---
+show_status() {
+    local has_o="NO"; command -v ollama &>/dev/null && has_o="YES"
+    local has_c="NO"; command -v claude &>/dev/null && has_c="YES"
+    local has_x="NO"; command -v codex &>/dev/null && has_x="YES"
+    local ov; ov=$(get_ver ollama); local cv; cv=$(get_ver claude); local xv; xv=$(get_ver codex)
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    local source; source=$(cfg "source" "cloud")
+    local perms="ON"; [[ "$(cfg 'skipPerms' 'True')" != "True" ]] && perms="OFF"
+
+    echo -e "\n${CY}========== Ollama CLI Launcher ==========${R}"
+    [[ "$has_o" == "YES" && -n "$ov" ]] && echo -e "  Ollama        : ${GN}v$ov${R}" || echo -e "  Ollama        : ${RD}NOT INSTALLED${R}"
+    [[ "$has_c" == "YES" && -n "$cv" ]] && echo -e "  Claude Code   : ${GN}v$cv${R}" || echo -e "  Claude Code   : ${GY}not installed${R}"
+    [[ "$has_x" == "YES" && -n "$xv" ]] && echo -e "  Codex CLI     : ${GN}v$xv${R}" || echo -e "  Codex CLI     : ${GY}not installed${R}"
+    echo -e "  Model         : ${CY}$model [$source]${R}"
+    echo -e "  Skip Perms    : ${CY}$perms${R}"
+    echo -e "${CY}============================================${R}"
+}
+
+# --- Model Browser ---
+fetch_cloud() {
     local resp; resp=$(curl -fsSL --max-time 15 "https://ollama.com/api/tags" 2>/dev/null || true)
-    [[ -z "$resp" ]] && { echo -e "${CLR_RED}Failed.${CLR_RESET}"; return; }
+    [[ -z "$resp" ]] && return
     echo "$resp" | python3 -c "
 import sys,json
-try:
- d=json.load(sys.stdin)
- for m in sorted(d.get('models',[]), key=lambda x: x.get('modified_at',''), reverse=True)[:10]:
-  gb=m.get('size',0)/1024/1024/1024
-  print(f\"{m['name']}|{gb:.2f}|{m.get('modified_at','')[:10]}\")
-except: pass" 2>/dev/null || true
+for m in sorted(json.load(sys.stdin).get('models',[]), key=lambda x: x.get('modified_at',''), reverse=True)[:10]:
+    gb=m.get('size',0)/1024/1024/1024
+    print(f\"{m['name']}|{gb:.2f}\")" 2>/dev/null || true
 }
 
-fetch_local_models() {
-    echo -e "${CLR_GRAY}Fetching local models from Ollama...${CLR_RESET}"
+fetch_local() {
     local resp; resp=$(curl -fsSL --max-time 5 "http://localhost:11434/api/tags" 2>/dev/null || true)
-    [[ -z "$resp" ]] && { echo -e "${CLR_RED}Failed.${CLR_RESET}"; return; }
+    [[ -z "$resp" ]] && return
     echo "$resp" | python3 -c "
 import sys,json
-try:
- d=json.load(sys.stdin)
- for m in sorted(d.get('models',[]), key=lambda x: x.get('modified_at',''), reverse=True):
-  gb=m.get('size',0)/1024/1024/1024
-  print(f\"{m['name']}|{gb:.2f}|{m.get('modified_at','')[:10]}\")
-except: pass" 2>/dev/null || true
+for m in json.load(sys.stdin).get('models',[]):
+    gb=m.get('size',0)/1024/1024/1024
+    print(f\"{m['name']}|{gb:.2f}\")" 2>/dev/null || true
 }
 
-# --- Model Picker ---
-show_cloud_model_menu() {
-    while true; do
-        clear
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}   Cloud Models (Ollama Registry - Newest)${CLR_RESET}"
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo ""
-        local models=()
-        while IFS='|' read -r name size date; do
-            [[ -n "$name" ]] && models+=("$name" "$size" "$date")
-        done < <(fetch_cloud_models)
-        if [[ ${#models[@]} -eq 0 ]]; then
-            echo -e "${CLR_RED}No cloud models could be fetched.${CLR_RESET}"
-            read -rp "Press Enter" || true; return
-        fi
-        local idx=0 i=1
-        while [[ $idx -lt ${#models[@]} ]]; do
-            printf "  [%d] ${CLR_CYAN}%s${CLR_RESET}  (%s GB, %s)\n" "$i" "${models[idx]}" "${models[idx+1]}" "${models[idx+2]}"
-            ((idx+=3)); ((i++))
-        done
-        echo ""; echo -e "  [M] Manual entry"
-        echo -e "  [B] Back"; echo ""
-        ask "Select: " choice
-        case "$(lc "$choice")" in
-            b) return ;;
-            m)
-                ask "Enter model name (e.g., kimi-k2.6:cloud): " manual
-                [[ -n "$manual" ]] && { config_set "selectedModel" "$manual"; config_set "source" "cloud"; echo -e "${CLR_GREEN}Model: $manual${CLR_RESET}"; }
-                read -rp "Press Enter" || true; return
-                ;;
-        esac
-        if [[ "$choice" =~ ^[0-9]+$ ]]; then
-            local arr_idx=$(( (choice-1)*3 ))
-            [[ $arr_idx -ge 0 && $arr_idx -lt ${#models[@]} ]] && {
-                config_set "selectedModel" "${models[arr_idx]}"; config_set "source" "cloud"
-                echo -e "${CLR_GREEN}Model: ${models[arr_idx]}${CLR_RESET}"; }
-        fi
-        read -rp "Press Enter" || true
+browse_cloud() {
+    clear
+    echo -e "${GN}========== Cloud Models (Newest 10) ==========${R}\n"
+    local models=()
+    while IFS='|' read -r n s; do [[ -n "$n" ]] && models+=("$n" "$s"); done < <(fetch_cloud)
+    if [[ ${#models[@]} -eq 0 ]]; then echo -e "${RD}No models fetched.${R}"; read -rp "Press Enter" || true; return; fi
+    local i=1 idx=0
+    while [[ $idx -lt ${#models[@]} ]]; do
+        printf "  [%d] ${CY}%s${R}  (%s GB)\n" "$i" "${models[idx]}" "${models[idx+1]}"
+        ((idx+=2)); ((i++))
     done
+    echo -e "\n  [M] Manual  [B] Back\n"
+    ask "Select: " c
+    case "$(lc "$c")" in
+        b) return ;;
+        m) ask "Model: " m; [[ -n "$m" ]] && { json_set "model" "$m"; json_set "source" "cloud"; }; return ;;
+    esac
+    if [[ "$c" =~ ^[0-9]+$ ]]; then
+        local ai=$(( (c-1)*2 ))
+        [[ $ai -ge 0 && $ai -lt ${#models[@]} ]] && { json_set "model" "${models[ai]}"; json_set "source" "cloud"; echo -e "${GN}Model: ${models[ai]}${R}"; }
+    fi
+    read -rp "Press Enter" || true
 }
 
-show_local_model_menu() {
-    while true; do
-        clear
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}   Local Models (on this Mac)${CLR_RESET}"
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo ""
-        local models=()
-        while IFS='|' read -r name size date; do
-            [[ -n "$name" ]] && models+=("$name" "$size" "$date")
-        done < <(fetch_local_models)
-        if [[ ${#models[@]} -eq 0 ]]; then
-            echo -e "${CLR_YELLOW}No local models found.${CLR_RESET}"
-            read -rp "Press Enter" || true; return
-        fi
-        local idx=0 i=1
-        while [[ $idx -lt ${#models[@]} ]]; do
-            printf "  [%d] ${CLR_CYAN}%s${CLR_RESET}  (%s GB, %s)\n" "$i" "${models[idx]}" "${models[idx+1]}" "${models[idx+2]}"
-            ((idx+=3)); ((i++))
-        done
-        echo ""; echo -e "  [B] Back"; echo ""
-        ask "Select: " choice
-        case "$(lc "$choice")" in b) return ;; esac
-        if [[ "$choice" =~ ^[0-9]+$ ]]; then
-            local arr_idx=$(( (choice-1)*3 ))
-            [[ $arr_idx -ge 0 && $arr_idx -lt ${#models[@]} ]] && {
-                config_set "selectedModel" "${models[arr_idx]}"; config_set "source" "local"
-                echo -e "${CLR_GREEN}Model: ${models[arr_idx]}${CLR_RESET}"; }
-        fi
-        read -rp "Press Enter" || true
+browse_local() {
+    clear
+    echo -e "${GN}========== Local Models ==========${R}\n"
+    local models=()
+    while IFS='|' read -r n s; do [[ -n "$n" ]] && models+=("$n" "$s"); done < <(fetch_local)
+    if [[ ${#models[@]} -eq 0 ]]; then echo -e "${YL}No local models.${R}"; read -rp "Press Enter" || true; return; fi
+    local i=1 idx=0
+    while [[ $idx -lt ${#models[@]} ]]; do
+        printf "  [%d] ${CY}%s${R}  (%s GB)\n" "$i" "${models[idx]}" "${models[idx+1]}"
+        ((idx+=2)); ((i++))
     done
+    echo -e "\n  [B] Back\n"
+    ask "Select: " c
+    case "$(lc "$c")" in b) return ;; esac
+    if [[ "$c" =~ ^[0-9]+$ ]]; then
+        local ai=$(( (c-1)*2 ))
+        [[ $ai -ge 0 && $ai -lt ${#models[@]} ]] && { json_set "model" "${models[ai]}"; json_set "source" "local"; echo -e "${GN}Model: ${models[ai]}${R}"; }
+    fi
+    read -rp "Press Enter" || true
 }
 
 show_model_picker() {
     while true; do
         clear
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo -e "${CLR_GREEN}         Pick / Change Model${CLR_RESET}"
-        echo -e "${CLR_GREEN}=============================================${CLR_RESET}"
-        echo ""
-        echo -e "Current: ${CLR_CYAN}$(config_get 'selectedModel' "$DEFAULT_MODEL") [source: $(config_get 'source' "$DEFAULT_SOURCE")]${CLR_RESET}"
-        echo ""
+        echo -e "${GN}========== Pick Model ==========${R}\n"
+        echo -e "Current: ${CY}$(cfg 'model' "$DEFAULT_MODEL") [$(cfg 'source' 'cloud')]${R}\n"
         echo -e "  [1] Browse Cloud Models"
         echo -e "  [2] Browse Local Models"
         echo -e "  [3] Manual Entry"
-        echo -e "  [B] Back"
-        echo ""
-        ask "Enter choice: " choice
-        case "$(lc "$choice")" in
-            1) show_cloud_model_menu ;;
-            2) show_local_model_menu ;;
-            3)
-                ask "Enter model name: " manual
-                [[ -n "$manual" ]] && { config_set "selectedModel" "$manual"; config_set "source" "manual"; echo -e "${CLR_GREEN}Model: $manual${CLR_RESET}"; read -rp "Press Enter" || true; }
-                ;;
+        echo -e "  [P] Pull Current Model"
+        echo -e "  [B] Back\n"
+        ask "Choice: " c
+        case "$(lc "$c")" in
+            1) browse_cloud ;;
+            2) browse_local ;;
+            3) ask "Model: " m; [[ -n "$m" ]] && { json_set "model" "$m"; json_set "source" "manual"; }; read -rp "Press Enter" || true ;;
+            p) echo -e "${CY}Pulling '$(cfg 'model' "$DEFAULT_MODEL")'...${R}"; ollama pull "$(cfg 'model' "$DEFAULT_MODEL")"; read -rp "Press Enter" || true ;;
             b) return ;;
         esac
     done
 }
 
-# --- Pull & Sign-in ---
-pull_selected_model() {
-    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    echo -e "${CLR_CYAN}Pulling '$model'...${CLR_RESET}"
-    ollama pull "$model" 2>/dev/null && echo -e "${CLR_GREEN}Done.${CLR_RESET}" || echo -e "${CLR_RED}ERROR.${CLR_RESET}"
-    read -rp "Press Enter" || true
-}
-
-check_ollama_signin() {
-    echo -e "${CLR_CYAN}Checking Ollama sign-in...${CLR_RESET}"
-    if ollama list &>/dev/null; then
-        echo -e "${CLR_GREEN}Signed in. Local models:${CLR_RESET}"
-        ollama list 2>/dev/null | head -10 | while read -r line; do echo -e "${CLR_GRAY}  $line${CLR_RESET}"; done
-    else
-        echo -e "${CLR_YELLOW}Could not list models.${CLR_RESET}"
-        ask "Run 'ollama signin'? (y/n) " ans
-        [[ "$(lc "$ans")" == "y" ]] && ollama signin
-    fi
-    read -rp "Press Enter" || true
-}
-
 # --- Launch ---
 launch_codex() {
-    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    start_ollama_server || { read -rp "Press Enter" || true; return; }
-    local -a cmd=("ollama" "launch" "codex" "--model" "$model" "--")
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && cmd+=("--yolo")
+    start_ollama || { read -rp "Press Enter" || true; return; }
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    log "Launching Codex CLI via Ollama ($model)"
+    local cmd=("ollama" "launch" "codex" "--model" "$model" "--")
+    [[ "$(cfg 'skipPerms' 'True')" == "True" ]] && cmd+=("--yolo")
     clear
-    echo -e "\n${CLR_GREEN}>>> ${cmd[*]}${CLR_RESET}"
-    "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex exited with non-zero code.${CLR_RESET}"
-    read -rp "Session ended. Press Enter" || true
+    echo -e "\n${GN}>>> ollama launch codex --model $model${R}"
+    "${cmd[@]}" || echo -e "${YL}Exited non-zero.${R}"
+    read -rp "Press Enter" || true
 }
 
 launch_claude() {
-    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    start_ollama_server || { read -rp "Press Enter" || true; return; }
-    local -a cmd=("ollama" "launch" "claude" "--model" "$model" "--")
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && cmd+=("--dangerously-skip-permissions")
+    start_ollama || { read -rp "Press Enter" || true; return; }
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    log "Launching Claude Code via Ollama ($model)"
+    local cmd=("ollama" "launch" "claude" "--model" "$model" "--")
+    [[ "$(cfg 'skipPerms' 'True')" == "True" ]] && cmd+=("--dangerously-skip-permissions")
     clear
-    echo -e "\n${CLR_GREEN}>>> ${cmd[*]}${CLR_RESET}"
-    "${cmd[@]}" || echo -e "${CLR_YELLOW}Claude Code exited with non-zero code.${CLR_RESET}"
-    read -rp "Session ended. Press Enter" || true
+    echo -e "\n${GN}>>> ollama launch claude --model $model${R}"
+    "${cmd[@]}" || echo -e "${YL}Exited non-zero.${R}"
+    read -rp "Press Enter" || true
 }
 
 launch_codex_app() {
-    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    start_ollama_server || { read -rp "Press Enter" || true; return; }
-    local -a cmd=("ollama" "launch" "codex-app" "--model" "$model")
+    start_ollama || { read -rp "Press Enter" || true; return; }
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    log "Launching Codex App via Ollama ($model)"
+    local cmd=("ollama" "launch" "codex-app" "--model" "$model")
     clear
-    echo -e "\n${CLR_GREEN}>>> ${cmd[*]}${CLR_RESET}"
-    "${cmd[@]}" || echo -e "${CLR_YELLOW}Codex App exited with non-zero code.${CLR_RESET}"
-    read -rp "Session ended. Press Enter" || true
+    echo -e "\n${GN}>>> ollama launch codex-app --model $model${R}"
+    "${cmd[@]}" || echo -e "${YL}Exited non-zero.${R}"
+    read -rp "Press Enter" || true
 }
 
 launch_claude_desktop() {
-    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    start_ollama_server || { read -rp "Press Enter" || true; return; }
+    start_ollama || { read -rp "Press Enter" || true; return; }
+    log "Launching Claude Desktop via Ollama"
 
-    # See notes above about Anthropic-compatible API / proxy requirement.
-
-    # Kill any running Claude Desktop so it starts fresh
-    echo -e "\n${CLR_CYAN}Preparing Claude Desktop for third-party mode...${CLR_RESET}"
+    echo -e "\n${CY}Preparing Claude Desktop...${R}"
     pkill -x Claude 2>/dev/null || true
     sleep 2
+    log "Killed existing Claude Desktop (if any)"
 
-    # Clear OAuth session so Claude Desktop reads the 3p config instead of auto-login
-    local claude_cfg="$HOME/Library/Application Support/Claude/config.json"
-    if [[ -f "$claude_cfg" ]]; then
-        python3 -c "
-import json, os
-try:
- with open('$claude_cfg') as f: d=json.load(f)
- d.pop('oauth:tokenCache', None)
- with open('$claude_cfg','w') as f: json.dump(d, f, indent=2)
-except: pass" 2>/dev/null
-        echo -e "${CLR_GRAY}  Cleared OAuth session${CLR_RESET}"
-    fi
-
-    # Write 3p config to configLibrary (primary method for modern Claude Desktop)
-    local config_id; config_id=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
-    local lib_dir="$HOME/Library/Application Support/Claude-3p/configLibrary"
-    mkdir -p "$lib_dir"
+    local cid; cid=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
+    local lib="$HOME/Library/Application Support/Claude-3p/configLibrary"
+    mkdir -p "$lib"
 
     python3 -c "
 import json, os
-lib = '$lib_dir'
-cid = '$config_id'
-
+lib = '$lib'; cid = '$cid'
 meta = {'appliedId': cid, 'entries': [{'id': cid, 'name': 'Ollama Gateway'}]}
-with open(os.path.join(lib, '_meta.json'), 'w') as f:
-    json.dump(meta, f, indent=2)
-
+with open(os.path.join(lib, '_meta.json'), 'w') as f: json.dump(meta, f, indent=2)
 config = {
     'inferenceProvider': 'gateway',
     'inferenceGatewayBaseUrl': 'http://localhost:11434',
     'inferenceGatewayApiKey': 'ollama',
     'inferenceGatewayAuthScheme': 'bearer',
     'inferenceModels': [
-        {'name': 'claude-opus-4-7',          'labelOverride': 'Ollama (Opus 4.7)'},
-        {'name': 'claude-sonnet-4-6',        'labelOverride': 'Ollama (Sonnet 4.6)'},
+        {'name': 'claude-opus-4-7', 'labelOverride': 'Ollama (Opus 4.7)'},
+        {'name': 'claude-sonnet-4-6', 'labelOverride': 'Ollama (Sonnet 4.6)'},
         {'name': 'claude-haiku-4-5-20251001', 'labelOverride': 'Ollama (Haiku 4.5)'},
     ],
-    'disableEssentialTelemetry': True,
-    'disableNonessentialTelemetry': True,
-    'disableNonessentialServices': True,
-    'unstableDisableModelVerification': True,
+    'disableEssentialTelemetry': True, 'disableNonessentialTelemetry': True,
+    'disableNonessentialServices': True, 'unstableDisableModelVerification': True,
     'builtinToolPolicy': {
         'Bash': 'allow', 'Read': 'allow', 'Write': 'allow', 'Edit': 'allow',
         'Glob': 'allow', 'Grep': 'allow', 'NotebookEdit': 'allow',
@@ -396,192 +393,104 @@ config = {
         'Skill': 'allow', 'AskUserQuestion': 'allow', 'SendUserMessage': 'allow'
     }
 }
-with open(os.path.join(lib, cid + '.json'), 'w') as f:
-    json.dump(config, f, indent=2)
-
-# Also write claude_desktop_config.json (legacy compat)
+with open(os.path.join(lib, cid + '.json'), 'w') as f: json.dump(config, f, indent=2)
 config3p = {
     'deploymentMode': '3p',
-    'enterpriseConfig': {k: v for k, v in config.items() if k != 'unstableDisableModelVerification'},
-    'preferences': {
-        'secureVmFeaturesEnabled': True,
-        'coworkScheduledTasksEnabled': True,
-        'ccdScheduledTasksEnabled': True,
-        'sidebarMode': 'epitaxy',
-        'coworkWebSearchEnabled': True
-    }
+    'enterpriseConfig': {k:v for k,v in config.items() if k != 'unstableDisableModelVerification'}
 }
-paths3p = [
-    os.path.join(os.path.expanduser('~/Library/Application Support/Claude-3p'), 'claude_desktop_config.json'),
-]
-for p in paths3p:
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, 'w') as f:
-        json.dump(config3p, f, indent=2)
+p3p = os.path.join(os.path.expanduser('~/Library/Application Support/Claude-3p'), 'claude_desktop_config.json')
+os.makedirs(os.path.dirname(p3p), exist_ok=True)
+with open(p3p, 'w') as f: json.dump(config3p, f, indent=2)
 " 2>/dev/null
-    echo -e "${CLR_GRAY}  Wrote 3p config (configLibrary + claude_desktop_config.json)${CLR_RESET}"
+    log "Wrote 3p config"
 
-    export ANTHROPIC_BASE_URL="http://localhost:11434"
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-sonnet-4-6"
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5-20251001"
-    export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
+    local cfg_path="$HOME/Library/Application Support/Claude/config.json"
+    [[ -f "$cfg_path" ]] && python3 -c "
+import json; d=json.load(open('$cfg_path'))
+for k in ['oauth:tokenCache','oauth:refreshToken','oauth:accountId','oauth:accessToken',
+          'oauth:expiresAt','oauth:token','activeAccountId','activeOrgId',
+          'authSession','lastSignedInAccount','oauthTokens']:
+    d.pop(k, None)
+json.dump(d, open('$cfg_path','w'), indent=2)" 2>/dev/null && log "Cleared OAuth session"
 
-    echo -e "\n${CLR_GREEN}Launching Claude Code Desktop with Ollama: $model${CLR_RESET}"
-    echo -e "${CLR_YELLOW}NOTE: Ollama's native API is not Anthropic-compatible.${CLR_RESET}"
-    echo -e "${CLR_YELLOW}A proxy (ollama launch claude, cc-relay, cdo) is needed.${CLR_RESET}"
-    echo -e "${CLR_CYAN}  Look for 'Continue with Gateway' on the sign-in screen${CLR_RESET}"
+    echo -e "${GY}  Config written. Look for 'Continue with Gateway' at sign-in.${R}"
+    echo -e "${GN}Launching Claude Desktop...${R}"
     open -a Claude 2>/dev/null || open -a "Claude Code" 2>/dev/null || {
-        echo -e "${CLR_RED}Claude Desktop not found. Install from https://claude.ai/download${CLR_RESET}"
+        echo -e "${RD}Claude Desktop not found.${R}"
+        log "ERROR: Claude Desktop not found"
         read -rp "Press Enter" || true
     }
-}
-
-# --- Status & Menu ---
-show_status() {
-    local oExists="NO"; command -v ollama &>/dev/null && oExists="YES"
-    local authOk="NO"; test_ollama_auth && authOk="YES"
-    local model source oUpdate=""
-    model=$(config_get "selectedModel" "$DEFAULT_MODEL")
-    source=$(config_get "source" "$DEFAULT_SOURCE")
-
-    if [[ "$oExists" == "YES" ]]; then
-        local oInst oLat
-        oInst=$(get_ollama_installed_version)
-        oLat=$(get_ollama_latest_version)
-        [[ -n "$oInst" && -n "$oLat" ]] && version_greater "$oInst" "$oLat" && oUpdate=" (update v$oLat available)"
-    fi
-
-    echo -e "\n${CLR_CYAN}========== Ollama CLI Launcher ==========${CLR_RESET}"
-    if [[ "$oExists" == "YES" ]]; then
-        [[ -n "$oUpdate" ]] && echo -e "  Ollama        : ${CLR_YELLOW}v$oInst$oUpdate${CLR_RESET}" || echo -e "  Ollama        : ${CLR_GREEN}v$oInst (up to date)${CLR_RESET}"
-    else
-        echo -e "  Ollama        : ${CLR_RED}NOT INSTALLED${CLR_RESET}"
-    fi
-    [[ "$authOk" == "YES" ]] && echo -e "  Ollama Auth   : ${CLR_GREEN}OK${CLR_RESET}" || echo -e "  Ollama Auth   : ${CLR_RED}NOT SIGNED IN${CLR_RESET}"
-    echo -e "  Model         : ${CLR_CYAN}$model [source: $source]${CLR_RESET}"
-    local permText
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
-    echo -e "  Skip-perms    : ${CLR_CYAN}$permText${CLR_RESET}"
-    echo -e "${CLR_CYAN}==========================================${CLR_RESET}"
 }
 
 show_main_menu() {
     clear
     show_status
-    local oExists="NO"; command -v ollama &>/dev/null && oExists="YES"
-    local model; model=$(config_get "selectedModel" "$DEFAULT_MODEL")
+    local model; model=$(cfg "model" "$DEFAULT_MODEL")
+    local perms="ON"; [[ "$(cfg 'skipPerms' 'True')" != "True" ]] && perms="OFF"
 
-    echo -e "\n[1] Install / Update Ollama ${CLR_WHITE}"
-    if [[ "$oExists" == "YES" ]]; then
-        local oInst oLat; oInst=$(get_ollama_installed_version); oLat=$(get_ollama_latest_version)
-        [[ -n "$oInst" && -n "$oLat" ]] && version_greater "$oInst" "$oLat" && echo -e "${CLR_YELLOW}     ^^ UPDATE AVAILABLE${CLR_RESET}"
-    fi
-    echo -e "[2] Pick / Change Model  [current: $model] ${CLR_WHITE}"
-    local source; source=$(config_get "source" "$DEFAULT_SOURCE")
-    if [[ "$source" == "cloud" && "$oExists" == "YES" ]]; then
-        echo -e "[3] Pull Selected Model Locally ${CLR_WHITE}"
-    else
-        echo -e "[3] Pull Selected Model Locally [not applicable] ${CLR_GRAY}"
-    fi
-    echo -e "[4] Launch Codex CLI (via Ollama) ${CLR_GREEN}"
-    echo -e "[5] Launch Claude Code CLI (via Ollama) ${CLR_GREEN}"
-    echo -e "[6] Launch Codex App (via Ollama) ${CLR_GREEN}"
-    if [[ -d /Applications/Claude.app ]] || [[ -d /Applications/Claude\ Code.app ]]; then
-        [[ "$oExists" == "YES" ]] && echo -e "[7] Launch Claude Code Desktop (via Ollama) ${CLR_GREEN}" || echo -e "[7] Launch Claude Desktop [Ollama not installed] ${CLR_GRAY}"
-    else
-        echo -e "[7] Launch Claude Desktop [not installed] ${CLR_GRAY}"
-    fi
-    echo -e "[8] Check / Fix Ollama Sign-in ${CLR_WHITE}"
-    echo -e "[9] Clear Version Cache ${CLR_WHITE}"
-    local permText
-    [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && permText="ON" || permText="OFF"
-    echo -e "[T] Toggle Permission Bypass [currently: $permText] ${CLR_WHITE}"
-    echo -e "[Q] Quit ${CLR_MAGENTA}"
+    echo ""
+    echo -e "[1] Launch Codex CLI (via Ollama)     ${GN}${R}"
+    echo -e "[2] Launch Claude Code (via Ollama)   ${GN}${R}"
+    echo -e "[3] Launch Codex App (via Ollama)     ${GN}${R}"
+    echo -e "[4] Launch Claude Desktop (via Ollama) ${GN}${R}"
+    echo -e "[5] Pick / Browse Models [current: $model] ${WH}${R}"
+    echo -e "[6] Check Ollama Sign-in              ${WH}${R}"
+    echo -e "[T] Toggle Permissions [$perms]          ${WH}${R}"
+    echo -e "[L] View Log                           ${WH}${R}"
+    echo -e "[Q] Quit                               ${MG}${R}"
     echo ""
 }
 
-# --- Main ---
-ensure_config
+# ============================================================
+# Run
+# ============================================================
+[[ -f "$CONFIG_FILE" ]] || python3 -c "
+import json
+json.dump({'model':'$DEFAULT_MODEL','source':'cloud','skipPerms':True,
+           'ollamaLatest':'','ollamaChecked':'','claudeNpmLatest':'','claudeNpmChecked':'',
+           'codexNpmLatest':'','codexNpmChecked':''}, open('$CONFIG_FILE','w'), indent=2)" 2>/dev/null
+
+if auto_update 2>/dev/null; then :; else
+    log "FATAL: auto-update crashed"
+    echo -e "${RD}Auto-update error (continuing anyway)${R}"
+fi
 
 if [[ $# -gt 0 ]]; then
+    command -v ollama &>/dev/null || { echo "Ollama not found. Run without args."; exit 1; }
+    start_ollama || exit 1
+    log "Direct launch: $1"
     case "$(lc "$1")" in
-        codex)
-            command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
-            start_ollama_server || exit 1
-            launch_codex; exit $?
-            ;;
-        claude)
-            command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
-            start_ollama_server || exit 1
-            launch_claude; exit $?
-            ;;
-        codex-app)
-            command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
-            start_ollama_server || exit 1
-            launch_codex_app; exit $?
-            ;;
-        claude-desktop)
-            command -v ollama &>/dev/null || { echo "Ollama not found. Installing..."; install_ollama; }
-            start_ollama_server || exit 1
-            launch_claude_desktop; exit $?
-            ;;
+        codex) launch_codex; exit $? ;;
+        claude) launch_claude; exit $? ;;
+        codex-app) launch_codex_app; exit $? ;;
+        claude-desktop) launch_claude_desktop; exit $? ;;
     esac
 fi
 
 while true; do
     show_main_menu
-    ask "Enter choice: " choice
+    ask "Choice: " choice
+    log "Menu choice: $choice"
     case "$(lc "$choice")" in
-        1)
-            if command -v ollama &>/dev/null; then
-                local oInst oLat; oInst=$(get_ollama_installed_version); oLat=$(get_ollama_latest_version)
-                [[ -n "$oInst" && -n "$oLat" ]] && version_greater "$oInst" "$oLat" && {
-                    echo -e "${CLR_YELLOW}Ollama update: v$oInst -> v$oLat${CLR_RESET}"
-                    ask "Update now? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_ollama
-                } || { ask "Ollama is up to date. Reinstall? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_ollama; }
-            else
-                ask "Install Ollama now? (y/n) " ans; [[ "$(lc "$ans")" == "y" ]] && install_ollama
-            fi
-            read -rp "Press Enter" || true
-            ;;
-        2) show_model_picker ;;
-        3)
-            if [[ "$(config_get 'source' "$DEFAULT_SOURCE")" == "cloud" ]] && command -v ollama &>/dev/null; then
-                pull_selected_model
-            else
-                echo -e "${CLR_YELLOW}Only available with cloud models and Ollama installed.${CLR_RESET}"
-                read -rp "Press Enter" || true
-            fi
-            ;;
-        4)
-            command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
-            launch_codex
-            ;;
-        5)
-            command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
-            launch_claude
-            ;;
+        1) launch_codex ;;
+        2) launch_claude ;;
+        3) launch_codex_app ;;
+        4) launch_claude_desktop ;;
+        5) show_model_picker ;;
         6)
-            command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
-            launch_codex_app
-            ;;
-        7)
-            command -v ollama &>/dev/null || { echo -e "${CLR_RED}Ollama not installed. Use option 1.${CLR_RESET}"; read -rp "Press Enter" || true; continue; }
-            launch_claude_desktop
-            ;;
-        8) check_ollama_signin ;;
-        9)
-            cache_set "ollamaLastChecked" ""
-            echo -e "${CLR_GREEN}Version cache cleared.${CLR_RESET}"; sleep 1
-            ;;
-        t)
-            local sp; sp=$(config_get "skipPermissions" "$DEFAULT_SKIPPERMS")
-            [[ "$sp" == "True" ]] && config_set "skipPermissions" "False" || config_set "skipPermissions" "True"
-            [[ "$(config_get 'skipPermissions' "$DEFAULT_SKIPPERMS")" == "True" ]] && echo -e "${CLR_GREEN}Mode: SKIP-PERMISSIONS${CLR_RESET}" || echo -e "${CLR_GREEN}Mode: NORMAL${CLR_RESET}"
-            sleep 1
-            ;;
-        q) echo -e "${CLR_GREEN}Goodbye!${CLR_RESET}"; exit 0 ;;
-        *) echo -e "${CLR_RED}Invalid choice.${CLR_RESET}"; sleep 1 ;;
+            echo -e "${CY}Checking Ollama sign-in...${R}"
+            ollama list &>/dev/null && echo -e "${GN}Signed in.${R}" || { echo -e "${YL}Not signed in.${R}"; ask "Run 'ollama signin'? (y/n) " a; [[ "$(lc "$a")" == "y" ]] && ollama signin; }
+            read -rp "Press Enter" || true ;;
+        t) local sp; sp=$(cfg "skipPerms" "True")
+           [[ "$sp" == "True" ]] && json_set "skipPerms" "False" || json_set "skipPerms" "True"
+           log "Permissions toggled" ;;
+        l)
+            clear
+            echo -e "${CY}========== Log File ==========${R}"
+            echo -e "Path: $LOG_FILE"
+            echo ""
+            [[ -f "$LOG_FILE" ]] && tail -40 "$LOG_FILE" || echo -e "${YL}No log file yet.${R}"
+            echo ""; read -rp "Press Enter" || true ;;
+        q) echo -e "${GN}Bye!${R}"; log "User quit"; exit 0 ;;
     esac
 done

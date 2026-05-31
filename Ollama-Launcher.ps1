@@ -1,290 +1,274 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Ollama CLI Launcher — Codex CLI + Claude Code + Codex App through Ollama
+    Ollama CLI Launcher — auto-updating launcher for Codex CLI + Claude Code + Codex App via Ollama
 .DESCRIPTION
-    Single launcher for running Codex CLI, Claude Code, and Codex App through Ollama.
-    Browse cloud/local models, pull models, check for updates, toggle permissions.
+    Auto-updates Ollama, Claude Code & Codex CLI at startup.
+    Browse models, pull, and launch any tool.
     Usage:
       Ollama-Launcher.bat                  -> interactive menu
       Ollama-Launcher.bat codex            -> launch Codex CLI directly
       Ollama-Launcher.bat claude           -> launch Claude Code directly
       Ollama-Launcher.bat codex-app        -> launch Codex App directly
+      Ollama-Launcher.bat claude-desktop   -> launch Claude Desktop directly
 #>
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 Clear-Host
 
 # ============================================
-# Paths & Config
+# Logging
 # ============================================
-$script:BaseDir      = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "cli-launchers"
-if (-not (Test-Path $script:BaseDir)) { New-Item -ItemType Directory -Force -Path $script:BaseDir | Out-Null }
-$script:ConfigPath   = Join-Path $script:BaseDir "Ollama-Launcher.config.json"
-$script:VersionCache = Join-Path $script:BaseDir "Ollama-Launcher.versions.json"
-$script:CacheTTLMinutes = 60
+$script:BaseDir = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "cli-launchers"
+New-Item -ItemType Directory -Force -Path $script:BaseDir | Out-Null
+$script:LogPath = Join-Path $script:BaseDir "launcher.log"
 
-$script:DefaultConfig = @{
-    selectedModel   = "kimi-k2.6:cloud"
-    source          = "cloud"
-    skipPermissions = $true
+function Write-Log {
+    param([string]$Msg)
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "[$ts] $Msg"
+    try { Add-Content -Path $script:LogPath -Value $line -Encoding UTF8 } catch {}
+    try {
+        $f = Get-Item $script:LogPath -ErrorAction Stop
+        if ($f.Length -gt 1MB) {
+            $bak = $script:LogPath -replace '\.log$', '.1.log'
+            Move-Item -Force $script:LogPath $bak
+        }
+    } catch {}
+}
+Write-Log "========== Ollama Launcher started =========="
+
+# ============================================
+# Config
+# ============================================
+$script:ConfigPath = Join-Path $script:BaseDir "Ollama-Launcher.config.json"
+
+$DefaultCfg = @{
+    model = "kimi-k2.6:cloud"
+    source = "cloud"
+    skipPerms = $true
+    ollamaLatest = ""; ollamaChecked = ""
+    claudeNpmLatest = ""; claudeNpmChecked = ""
+    codexNpmLatest = ""; codexNpmChecked = ""
 }
 
-# ============================================
-# Config Helpers
-# ============================================
-function Get-Config {
-    $defaults = $script:DefaultConfig
+function Get-Cfg {
     if (Test-Path $script:ConfigPath) {
         try {
-            $cfg = Get-Content $script:ConfigPath -Raw | ConvertFrom-Json
-            foreach ($key in $defaults.Keys) {
-                if (-not $cfg.PSObject.Properties[$key]) {
-                    $cfg | Add-Member -NotePropertyName $key -NotePropertyValue $defaults[$key] -Force
-                }
+            $c = Get-Content $script:ConfigPath -Raw | ConvertFrom-Json
+            foreach ($k in $DefaultCfg.Keys) {
+                if (-not $c.PSObject.Properties[$k]) { $c | Add-Member -NotePropertyName $k -NotePropertyValue $DefaultCfg[$k] -Force }
             }
-            return $cfg
-        } catch { }
+            return $c
+        } catch { Write-Log "WARN: Could not parse config, using defaults" }
     }
-    New-Object PSObject -Property $defaults
+    New-Object PSObject -Property $DefaultCfg
 }
 
-function Save-Config($cfg) {
-    $cfg | ConvertTo-Json -Depth 3 | Set-Content $script:ConfigPath -Encoding UTF8
+function Save-Cfg($c) {
+    try { $c | ConvertTo-Json -Depth 3 | Set-Content $script:ConfigPath -Encoding UTF8 } catch {}
 }
 
 # ============================================
-# Version Cache
+# Helpers
 # ============================================
-function Get-VersionCache {
-    $defaultCache = @{
-        codexLatestVersion  = ""; codexLastChecked  = ""
-        claudeLatestVersion = ""; claudeLastChecked = ""
-        ollamaLatestVersion = ""; ollamaLastChecked = ""
-        approvedLastChecked = ""; codexApproved = ""; claudeApproved = ""; ollamaApproved = ""
-    }
-    if (Test-Path $script:VersionCache) {
-        try {
-            $cache = Get-Content $script:VersionCache -Raw | ConvertFrom-Json
-            foreach ($key in $defaultCache.Keys) {
-                if (-not $cache.PSObject.Properties[$key]) {
-                    $cache | Add-Member -NotePropertyName $key -NotePropertyValue $defaultCache[$key] -Force
-                }
-            }
-            return $cache
-        } catch { }
-    }
-    New-Object PSObject -Property $defaultCache
+function Has($cmd) {
+    $r = $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
+    Write-Log "  Has($cmd) = $r"
+    return $r
 }
 
-function Save-VersionCache($cache) {
-    $cache | ConvertTo-Json -Depth 3 | Set-Content $script:VersionCache -Encoding UTF8
-}
-
-function Is-CacheStale($lastCheckedStr) {
-    if ([string]::IsNullOrWhiteSpace($lastCheckedStr)) { return $true }
+function Get-InstalledVer($cmd) {
     try {
-        $last = [datetime]::Parse($lastCheckedStr)
-        return ([datetime]::Now - $last).TotalMinutes -gt $script:CacheTTLMinutes
-    } catch { return $true }
-}
-
-function Test-CommandExists($cmd) {
-    $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
-}
-
-function Test-ClaudeDesktopInstalled {
-    $null -ne (Get-StartApps 2>$null | Where-Object { $_.AppID -like "*Claude*" -and $_.AppID -like "*!Claude" })
-}
-
-function Compare-Versions($installed, $latest) {
-    if ([string]::IsNullOrWhiteSpace($installed) -or [string]::IsNullOrWhiteSpace($latest)) { return $null }
-    try {
-        return ([version]$latest -gt [version]$installed)
-    } catch { return $null }
-}
-
-function Get-ApprovedVersions {
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.approvedLastChecked)) {
-        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved; ollama = $cache.ollamaApproved }
-    }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jlaiii/cli-launchers/main/approved-versions.json" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        $cache.codexApproved = $data.codex_latest
-        $cache.claudeApproved = $data.claude_latest
-        $cache.ollamaApproved = $data.ollama_latest
-        $cache.approvedLastChecked = [datetime]::Now.ToString("o")
-        Save-VersionCache $cache
-        return @{ codex = $cache.codexApproved; claude = $cache.claudeApproved; ollama = $cache.ollamaApproved }
-    } catch { }
-    return $null
-}
-
-# ============================================
-# Version Checkers
-# ============================================
-function Get-CodexInstalledVersion {
-    try {
-        $ver = & codex --version 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ver -match '(\d+\.\d+\.\d+)') { return $matches[1] }
-    } catch { }
-    return $null
-}
-
-function Get-CodexLatestVersion {
-    $approved = Get-ApprovedVersions
-    if ($approved -and $approved.codex) { return $approved.codex }
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.codexLastChecked)) { return $cache.codexLatestVersion }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@openai/codex/latest" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        if ($data.version) {
-            $cache.codexLatestVersion = $data.version
-            $cache.codexLastChecked = [datetime]::Now.ToString("o")
-            Save-VersionCache $cache
-            return $data.version
+        $v = & $cmd --version 2>&1
+        Write-Log "  $cmd --version output: $v"
+        if ($v -match '(\d+\.\d+\.\d+)') {
+            Write-Log "  $cmd installed version: $($matches[1])"
+            return $matches[1]
         }
-    } catch { }
+    } catch { Write-Log "  $cmd --version failed: $_" }
     return $null
 }
 
-function Get-ClaudeInstalledVersion {
-    try {
-        $ver = claude --version 2>$null
-        if ($ver -match '(\d+\.\d+\.\d+)') { return $matches[1] }
-    } catch { }
-    return $null
+function Is-CacheStale($ts) {
+    if ([string]::IsNullOrWhiteSpace($ts)) { return $true }
+    try { return ([datetime]::Now - [datetime]::Parse($ts)).TotalMinutes -gt 60 }
+    catch { return $true }
 }
 
-function Get-ClaudeLatestVersion {
-    $approved = Get-ApprovedVersions
-    if ($approved -and $approved.claude) { return $approved.claude }
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.claudeLastChecked)) { return $cache.claudeLatestVersion }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        if ($data.version) {
-            $cache.claudeLatestVersion = $data.version
-            $cache.claudeLastChecked = [datetime]::Now.ToString("o")
-            Save-VersionCache $cache
-            return $data.version
-        }
-    } catch { }
-    return $null
-}
-
-function Get-OllamaInstalledVersion {
-    try {
-        $ver = ollama --version 2>$null
-        if ($ver -match '(\d+\.\d+\.\d+)') { return $matches[1] }
-    } catch { }
-    return $null
-}
-
-function Get-OllamaLatestVersion {
-    $approved = Get-ApprovedVersions
-    if ($approved -and $approved.ollama) { return $approved.ollama }
-    $cache = Get-VersionCache
-    if (-not (Is-CacheStale $cache.ollamaLastChecked)) { return $cache.ollamaLatestVersion }
-    try {
-        $resp = Invoke-WebRequest -Uri "https://api.github.com/repos/ollama/ollama/releases/latest" -UseBasicParsing -TimeoutSec 15
-        $data = $resp.Content | ConvertFrom-Json
-        if ($data.tag_name) {
-            $ver = $data.tag_name -replace '^v', ''
-            $cache.ollamaLatestVersion = $ver
-            $cache.ollamaLastChecked = [datetime]::Now.ToString("o")
-            Save-VersionCache $cache
-            return $ver
-        }
-    } catch { }
-    return $null
-}
-
-# ============================================
-# Ollama Server & Auth
-# ============================================
+# Ollama server
 function Test-OllamaRunning {
-    try {
-        $null = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3
-        return $true
-    } catch { return $false }
+    try { $null = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3; return $true } catch { return $false }
 }
 
 function Start-OllamaServer {
     if (Test-OllamaRunning) { return $true }
     Write-Host "Starting Ollama server..." -ForegroundColor Yellow
+    Write-Log "Starting Ollama server"
     try {
         Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
         $tries = 0
         while ($tries -lt 30) {
             Start-Sleep -Milliseconds 500
-            if (Test-OllamaRunning) {
-                Write-Host "Ollama server is ready." -ForegroundColor Green
-                return $true
-            }
+            if (Test-OllamaRunning) { Write-Host "Ollama server ready." -ForegroundColor Green; Write-Log "Ollama server started"; return $true }
             $tries++
         }
-        Write-Host "Ollama server did not start in time." -ForegroundColor Red
+        Write-Host "Ollama server did not start." -ForegroundColor Red
+        Write-Log "Ollama server start timeout"
         return $false
+    } catch { Write-Log "Ollama server start error: $_"; return $false }
+}
+
+# ============================================
+# Auto-Update — Ollama + Claude Code + Codex CLI
+# ============================================
+function Invoke-AutoUpdate {
+    Write-Host "Auto-update check..." -ForegroundColor DarkGray
+    Write-Log "Auto-update check starting"
+    $cfg = Get-Cfg
+    $didWork = $false
+
+    # --- Ollama (GitHub releases) ---
+    try {
+        if ((Is-CacheStale $cfg.ollamaChecked) -or (-not $cfg.ollamaLatest)) {
+            Write-Log "  Fetching Ollama latest from GitHub..."
+            $resp = Invoke-WebRequest -Uri "https://api.github.com/repos/ollama/ollama/releases/latest" -UseBasicParsing -TimeoutSec 10
+            $data = $resp.Content | ConvertFrom-Json
+            if ($data.tag_name) {
+                $cfg.ollamaLatest = $data.tag_name -replace '^v', ''
+                $cfg.ollamaChecked = [datetime]::Now.ToString("o")
+                Save-Cfg $cfg
+                Write-Log "  Ollama latest: $($cfg.ollamaLatest)"
+            }
+        } else { Write-Log "  Ollama cache hit: $($cfg.ollamaLatest)" }
     } catch {
-        Write-Host "Failed to start Ollama: $_" -ForegroundColor Red
-        return $false
+        Write-Log "  ERROR fetching Ollama from GitHub: $_"
+        Write-Host "  Ollama: offline, skipping." -ForegroundColor DarkGray
     }
-}
 
-function Test-OllamaAuth {
-    try {
-        ollama list 2>$null | Out-Null
-        return ($LASTEXITCODE -eq 0)
-    } catch { return $false }
-}
-
-# ============================================
-# Installers
-# ============================================
-function Install-NodeJS {
-    if (Test-CommandExists "winget") {
-        Write-Host "Installing Node.js via winget..." -ForegroundColor Cyan
-        try {
-            winget install OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements 2>$null | Out-Null
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            if (Test-CommandExists "npm") { Write-Host "Node.js ready!" -ForegroundColor Green; return $true }
-        } catch { }
+    if (Has "ollama" -and $cfg.ollamaLatest) {
+        $oi = Get-InstalledVer "ollama"
+        if ($oi -and $oi -ne $cfg.ollamaLatest) {
+            Write-Host "  Ollama: v$oi -> v$($cfg.ollamaLatest)" -ForegroundColor Yellow
+            Write-Log "  Ollama update from v$oi to v$($cfg.ollamaLatest)"
+            try { irm https://ollama.com/install.ps1 | iex; Write-Host "    Updated" -ForegroundColor Green; $didWork = $true }
+            catch { Write-Log "  Ollama update error: $_" }
+        }
+    } elseif (-not (Has "ollama")) {
+        Write-Host "  Ollama: installing..." -ForegroundColor Yellow
+        Write-Log "  Ollama not installed, installing"
+        try { irm https://ollama.com/install.ps1 | iex; Write-Host "    Installed" -ForegroundColor Green; $didWork = $true }
+        catch { Write-Log "  Ollama install error: $_" }
     }
-    Write-Host "Downloading Node.js LTS..." -ForegroundColor Cyan
-    try {
-        $index = Invoke-WebRequest "https://nodejs.org/download/release/index.json" -UseBasicParsing -TimeoutSec 30 | ConvertFrom-Json
-        $lts = $index | Where-Object { $_.lts -ne $false -and $_.lts -ne "" } | Select-Object -First 1
-        if (-not $lts) { $lts = $index | Select-Object -First 1 }
-        $url = "https://nodejs.org/dist/$($lts.version)/node-$($lts.version)-x64.msi"
-        $msi = Join-Path $env:TEMP "node-installer.msi"
-        Invoke-WebRequest $url -OutFile $msi -TimeoutSec 120
-        Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait
-        Remove-Item $msi -Force -ErrorAction SilentlyContinue
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        if (Test-CommandExists "npm") { Write-Host "Node.js installed!" -ForegroundColor Green; return $true }
-    } catch { }
-    Write-Host "Could not auto-install Node.js. Install from https://nodejs.org" -ForegroundColor Red
-    return $false
-}
 
-function Install-Ollama {
-    Write-Host "Installing/Updating Ollama..." -ForegroundColor Cyan
+    # --- Claude Code (npm) ---
     try {
-        irm https://ollama.com/install.ps1 | iex
-        Write-Host "Ollama installation complete." -ForegroundColor Green
+        if ((Is-CacheStale $cfg.claudeNpmChecked) -or (-not $cfg.claudeNpmLatest)) {
+            Write-Log "  Fetching Claude Code latest from npm..."
+            $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" -UseBasicParsing -TimeoutSec 10
+            $data = $resp.Content | ConvertFrom-Json
+            if ($data.version) {
+                $cfg.claudeNpmLatest = $data.version
+                $cfg.claudeNpmChecked = [datetime]::Now.ToString("o")
+                Save-Cfg $cfg
+                Write-Log "  Claude Code npm latest: $($data.version)"
+            }
+        } else { Write-Log "  Claude Code npm cache hit: $($cfg.claudeNpmLatest)" }
     } catch {
-        Write-Host "ERROR: $_" -ForegroundColor Red
+        Write-Log "  ERROR fetching Claude Code from npm: $_"
+        Write-Host "  Claude Code: offline, skipping." -ForegroundColor DarkGray
     }
-    Read-Host "Press Enter to continue"
+
+    if ($cfg.claudeNpmLatest) {
+        if (-not (Has "claude")) {
+            Write-Host "  Claude Code: installing v$($cfg.claudeNpmLatest)..." -ForegroundColor Yellow
+            Write-Log "  Claude Code not installed, installing v$($cfg.claudeNpmLatest)"
+            try {
+                if (Has "npm") {
+                    npm install -g @anthropic-ai/claude-code 2>&1 | ForEach-Object { Write-Log "  npm: $_" }
+                    Start-Sleep 3
+                }
+                if (Has "claude") {
+                    & claude install $cfg.claudeNpmLatest 2>&1 | ForEach-Object { Write-Log "  claude install: $_" }
+                } else { irm https://claude.ai/install.ps1 | iex }
+                Write-Host "    Installed" -ForegroundColor Green
+                Write-Log "  Claude Code install done"
+                $didWork = $true
+            } catch { Write-Log "  Claude Code install error: $_"; Write-Host "    Install failed" -ForegroundColor Red }
+        } else {
+            $ci = Get-InstalledVer "claude"
+            if ($ci -and $ci -ne $cfg.claudeNpmLatest) {
+                Write-Host "  Claude Code: v$ci -> v$($cfg.claudeNpmLatest)" -ForegroundColor Yellow
+                Write-Log "  Claude Code update from v$ci to v$($cfg.claudeNpmLatest)"
+                try { & claude install $cfg.claudeNpmLatest 2>&1 | ForEach-Object { Write-Log "  claude install: $_" }; Write-Host "    Updated" -ForegroundColor Green; $didWork = $true }
+                catch { Write-Log "  Claude Code update error: $_" }
+            }
+        }
+    }
+
+    # --- Codex CLI (npm) ---
+    try {
+        if ((Is-CacheStale $cfg.codexNpmChecked) -or (-not $cfg.codexNpmLatest)) {
+            Write-Log "  Fetching Codex CLI latest from npm..."
+            $resp = Invoke-WebRequest -Uri "https://registry.npmjs.org/@openai/codex/latest" -UseBasicParsing -TimeoutSec 10
+            $data = $resp.Content | ConvertFrom-Json
+            if ($data.version) {
+                $cfg.codexNpmLatest = $data.version
+                $cfg.codexNpmChecked = [datetime]::Now.ToString("o")
+                Save-Cfg $cfg
+                Write-Log "  Codex CLI npm latest: $($data.version)"
+            }
+        } else { Write-Log "  Codex CLI npm cache hit: $($cfg.codexNpmLatest)" }
+    } catch {
+        Write-Log "  ERROR fetching Codex CLI from npm: $_"
+        Write-Host "  Codex CLI: offline, skipping." -ForegroundColor DarkGray
+    }
+
+    if ($cfg.codexNpmLatest -and (Has "npm")) {
+        $ci = Get-InstalledVer "codex"
+        if (-not $ci) {
+            Write-Host "  Codex CLI: installing v$($cfg.codexNpmLatest)..." -ForegroundColor Yellow
+            Write-Log "  Codex CLI not installed, installing v$($cfg.codexNpmLatest)"
+            try { npm install -g "@openai/codex@$($cfg.codexNpmLatest)" 2>&1 | ForEach-Object { Write-Log "  npm: $_" }; Write-Host "    Installed" -ForegroundColor Green; $didWork = $true }
+            catch { Write-Log "  Codex CLI install error: $_" }
+        } elseif ($ci -ne $cfg.codexNpmLatest) {
+            Write-Host "  Codex CLI: v$ci -> v$($cfg.codexNpmLatest)" -ForegroundColor Yellow
+            Write-Log "  Codex CLI update from v$ci to v$($cfg.codexNpmLatest)"
+            try { npm install -g "@openai/codex@$($cfg.codexNpmLatest)" 2>&1 | ForEach-Object { Write-Log "  npm: $_" }; Write-Host "    Updated" -ForegroundColor Green; $didWork = $true }
+            catch { Write-Log "  Codex CLI update error: $_" }
+        }
+    }
+
+    if (-not $didWork) { Write-Host "  All up to date." -ForegroundColor DarkGray }
+    Write-Host ""
+    Write-Log "Auto-update complete. didWork=$didWork"
 }
 
 # ============================================
-# Model Fetchers
+# Status
+# ============================================
+function Show-Status {
+    $cfg = Get-Cfg
+    $hasOllama = Has "ollama"; $hasClaude = Has "claude"; $hasCodex = Has "codex"
+    $ollamaVer = if ($hasOllama) { Get-InstalledVer "ollama" } else { $null }
+    $claudeVer = if ($hasClaude) { Get-InstalledVer "claude" } else { $null }
+    $codexVer  = if ($hasCodex)  { Get-InstalledVer "codex" } else { $null }
+
+    Write-Host "========== Ollama CLI Launcher ==========" -ForegroundColor Cyan
+    if ($hasOllama -and $ollamaVer) { Write-Host "  Ollama        : v$ollamaVer" -ForegroundColor Green }
+    else { Write-Host "  Ollama        : NOT INSTALLED" -ForegroundColor Red }
+    if ($hasClaude -and $claudeVer) { Write-Host "  Claude Code   : v$claudeVer" -ForegroundColor Green }
+    else { Write-Host "  Claude Code   : not installed" -ForegroundColor DarkGray }
+    if ($hasCodex -and $codexVer) { Write-Host "  Codex CLI     : v$codexVer" -ForegroundColor Green }
+    else { Write-Host "  Codex CLI     : not installed" -ForegroundColor DarkGray }
+    Write-Host "  Model         : $($cfg.model) [$($cfg.source)]" -ForegroundColor Cyan
+    $perm = if ($cfg.skipPerms) { "ON" } else { "OFF" }
+    Write-Host "  Skip Perms    : $perm" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+}
+
+# ============================================
+# Model Browser
 # ============================================
 function Get-CloudModels {
     Write-Host "Fetching newest models from Ollama registry..." -ForegroundColor DarkGray
@@ -294,249 +278,176 @@ function Get-CloudModels {
         $models = @($data.models)
         if ($models.Count -eq 0) { return @() }
         foreach ($m in $models) {
-            try { $dt = [datetime]::Parse($m.modified_at) } catch { $dt = [datetime]::MinValue }
-            $m | Add-Member -NotePropertyName modified_dt -NotePropertyValue $dt -Force
+            try { $m | Add-Member -NotePropertyName modified_dt -NotePropertyValue ([datetime]::Parse($m.modified_at)) -Force }
+            catch { $m | Add-Member -NotePropertyName modified_dt -NotePropertyValue ([datetime]::MinValue) -Force }
         }
         return ($models | Sort-Object modified_dt -Descending | Select-Object -First 10)
-    } catch {
-        Write-Host "Failed to fetch cloud models: $_" -ForegroundColor Red
-        return @()
-    }
+    } catch { Write-Log "Cloud models fetch error: $_"; return @() }
 }
 
 function Get-LocalModels {
-    Write-Host "Fetching local models from Ollama..." -ForegroundColor DarkGray
     try {
         $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 5
-        $data = $resp.Content | ConvertFrom-Json
-        $models = @($data.models)
-        if ($models.Count -eq 0) { return @() }
-        foreach ($m in $models) {
-            try { $dt = [datetime]::Parse($m.modified_at) } catch { $dt = [datetime]::MinValue }
-            $m | Add-Member -NotePropertyName modified_dt -NotePropertyValue $dt -Force
-        }
-        return ($models | Sort-Object modified_dt -Descending)
-    } catch {
-        Write-Host "Failed to fetch local models: $_" -ForegroundColor Red
-        return @()
-    }
+        return @(($resp.Content | ConvertFrom-Json).models)
+    } catch { Write-Log "Local models fetch error: $_"; return @() }
 }
 
-# ============================================
-# Model Picker
-# ============================================
-function Show-CloudModelMenu {
+function Browse-CloudModels {
     Clear-Host
-    Write-Host "=============================================" -ForegroundColor Green
-    Write-Host "   Cloud Models (Ollama Registry - Newest)" -ForegroundColor Green
-    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "========== Cloud Models (Newest 10) ==========" -ForegroundColor Green
     Write-Host ""
     $models = Get-CloudModels
-    if ($models.Count -eq 0) {
-        Write-Host "No cloud models could be fetched." -ForegroundColor Red
-        Read-Host "Press Enter to return"
-        return
-    }
+    if ($models.Count -eq 0) { Write-Host "No cloud models could be fetched." -ForegroundColor Red; Read-Host "Press Enter"; return }
     for ($i = 0; $i -lt $models.Count; $i++) {
         $sizeGB = "{0:N2}" -f ($models[$i].size / 1GB)
-        Write-Host "  [$($i+1)] $($models[$i].name)" -ForegroundColor Cyan -NoNewline
-        Write-Host "  ($sizeGB GB, $($models[$i].modified_at.Substring(0,10)))" -ForegroundColor DarkGray
+        Write-Host "  [$($i+1)] $($models[$i].name)  ($sizeGB GB)" -ForegroundColor Cyan
     }
     Write-Host ""
-    Write-Host "  [M] Manual entry" -ForegroundColor Yellow
-    Write-Host "  [B] Back" -ForegroundColor Magenta
+    Write-Host "  [M] Manual entry  [B] Back" -ForegroundColor White
     Write-Host ""
-    $choice = Read-Host "Select a model"
+    $choice = Read-Host "Select"
     if ($choice.ToLower() -eq "b") { return }
-    if ($choice.ToLower() -eq "m") {
-        $manual = Read-Host "Enter model name (e.g., kimi-k2.6:cloud)"
-        if ($manual) {
-            $cfg = Get-Config; $cfg.selectedModel = $manual; $cfg.source = "cloud"; Save-Config $cfg
-            Write-Host "Model: $manual" -ForegroundColor Green
-        }
-        Read-Host "Press Enter to continue"
-        return
-    }
+    if ($choice.ToLower() -eq "m") { $m = Read-Host "Model name"; if ($m) { $cfg = Get-Cfg; $cfg.model = $m; $cfg.source = "cloud"; Save-Cfg $cfg }; return }
     $idx = 0
     if ([int]::TryParse($choice, [ref]$idx) -and $idx -ge 1 -and $idx -le $models.Count) {
-        $sel = $models[$idx - 1].name
-        $cfg = Get-Config; $cfg.selectedModel = $sel; $cfg.source = "cloud"; Save-Config $cfg
-        Write-Host "Model: $sel" -ForegroundColor Green
-    } else { Write-Host "Invalid selection." -ForegroundColor Red }
-    Read-Host "Press Enter to continue"
+        $cfg = Get-Cfg; $cfg.model = $models[$idx-1].name; $cfg.source = "cloud"; Save-Cfg $cfg
+        Write-Host "Model: $($models[$idx-1].name)" -ForegroundColor Green
+    }
+    Read-Host "Press Enter"
 }
 
-function Show-LocalModelMenu {
+function Browse-LocalModels {
     Clear-Host
-    Write-Host "=============================================" -ForegroundColor Green
-    Write-Host "   Local Models (on this PC)" -ForegroundColor Green
-    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "========== Local Models ==========" -ForegroundColor Green
     Write-Host ""
     $models = Get-LocalModels
-    if ($models.Count -eq 0) {
-        Write-Host "No local models found. Pull one from the cloud first." -ForegroundColor Yellow
-        Read-Host "Press Enter to return"
-        return
-    }
+    if ($models.Count -eq 0) { Write-Host "No local models found." -ForegroundColor Yellow; Read-Host "Press Enter"; return }
     for ($i = 0; $i -lt $models.Count; $i++) {
         $sizeGB = "{0:N2}" -f ($models[$i].size / 1GB)
-        Write-Host "  [$($i+1)] $($models[$i].name)" -ForegroundColor Cyan -NoNewline
-        Write-Host "  ($sizeGB GB, $($models[$i].modified_at.Substring(0,10)))" -ForegroundColor DarkGray
+        Write-Host "  [$($i+1)] $($models[$i].name)  ($sizeGB GB)" -ForegroundColor Cyan
     }
     Write-Host ""
-    Write-Host "  [B] Back" -ForegroundColor Magenta
+    Write-Host "  [B] Back" -ForegroundColor White
     Write-Host ""
-    $choice = Read-Host "Select a model"
+    $choice = Read-Host "Select"
     if ($choice.ToLower() -eq "b") { return }
     $idx = 0
     if ([int]::TryParse($choice, [ref]$idx) -and $idx -ge 1 -and $idx -le $models.Count) {
-        $sel = $models[$idx - 1].name
-        $cfg = Get-Config; $cfg.selectedModel = $sel; $cfg.source = "local"; Save-Config $cfg
-        Write-Host "Model: $sel" -ForegroundColor Green
-    } else { Write-Host "Invalid selection." -ForegroundColor Red }
-    Read-Host "Press Enter to continue"
+        $cfg = Get-Cfg; $cfg.model = $models[$idx-1].name; $cfg.source = "local"; Save-Cfg $cfg
+        Write-Host "Model: $($models[$idx-1].name)" -ForegroundColor Green
+    }
+    Read-Host "Press Enter"
 }
 
 function Show-ModelPicker {
     while ($true) {
         Clear-Host
-        Write-Host "=============================================" -ForegroundColor Green
-        Write-Host "         Pick / Change Model" -ForegroundColor Green
-        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host "========== Pick Model ==========" -ForegroundColor Green
         Write-Host ""
-        $cfg = Get-Config
-        Write-Host "Current: $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
+        $cfg = Get-Cfg
+        Write-Host "Current: $($cfg.model) [$($cfg.source)]" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  [1] Browse Cloud Models (newest 10)" -ForegroundColor Yellow
         Write-Host "  [2] Browse Local Models" -ForegroundColor Yellow
         Write-Host "  [3] Manual Entry" -ForegroundColor Yellow
+        Write-Host "  [P] Pull Current Model" -ForegroundColor White
         Write-Host "  [B] Back" -ForegroundColor Magenta
         Write-Host ""
-        $choice = Read-Host "Enter choice"
+        $choice = Read-Host "Choice"
         switch ($choice.ToLower()) {
-            "1" { Show-CloudModelMenu }
-            "2" { Show-LocalModelMenu }
+            "1" { Browse-CloudModels }
+            "2" { Browse-LocalModels }
             "3" {
-                $manual = Read-Host "Enter full model name (e.g., kimi-k2.6:cloud, llama3.3:latest)"
-                if ($manual) {
-                    $cfg = Get-Config; $cfg.selectedModel = $manual; $cfg.source = "manual"; Save-Config $cfg
-                    Write-Host "Model: $manual" -ForegroundColor Green
-                    Read-Host "Press Enter to continue"
-                }
+                $m = Read-Host "Enter model name"
+                if ($m) { $cfg = Get-Cfg; $cfg.model = $m; $cfg.source = "manual"; Save-Cfg $cfg; Write-Host "Model: $m" -ForegroundColor Green; Write-Log "Model changed: $m" }
+                Read-Host "Press Enter"
+            }
+            "p" {
+                $m = (Get-Cfg).model
+                Write-Host "Pulling '$m'..." -ForegroundColor Cyan
+                Write-Log "Pulling model: $m"
+                ollama pull $m
+                Read-Host "Press Enter"
             }
             "b" { return }
-            default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }
     }
-}
-
-# ============================================
-# Pull & Sign-in
-# ============================================
-function Pull-SelectedModel {
-    $model = (Get-Config).selectedModel
-    Write-Host "Pulling '$model' into local Ollama..." -ForegroundColor Cyan
-    try {
-        ollama pull $model
-        Write-Host "Done." -ForegroundColor Green
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Press Enter to continue"
-}
-
-function Check-OllamaSignin {
-    Write-Host "Checking Ollama sign-in..." -ForegroundColor Cyan
-    try {
-        $models = ollama list 2>$null
-        if ($LASTEXITCODE -eq 0 -and $models) {
-            Write-Host "Ollama is signed in. Local models:" -ForegroundColor Green
-            $models | Select-Object -First 10 | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
-        } else {
-            Write-Host "Could not list models. You may need to sign in." -ForegroundColor Yellow
-            $ans = Read-Host "Run 'ollama signin' now? (y/n)"
-            if ($ans -eq 'y') { ollama signin }
-        }
-    } catch { Write-Host "Error: $_" -ForegroundColor Red }
-    Read-Host "Press Enter to continue"
 }
 
 # ============================================
 # Launch Functions
 # ============================================
 function Launch-Codex {
-    $model = (Get-Config).selectedModel
-    if (-not (Start-OllamaServer)) { Read-Host "Press Enter to return"; return }
-    if (-not (Ensure-CodexInstalled)) { return }
-
-    $cmdParts = @("ollama", "launch", "codex", "--model", $model, "--")
-    if ((Get-Config).skipPermissions) { $cmdParts += "--yolo" }
-    $cmdString = $cmdParts -join ' '
-    Write-Host "`n>>> $cmdString" -ForegroundColor Green
+    if (-not (Start-OllamaServer)) { Read-Host "Press Enter"; return }
+    $model = (Get-Cfg).model
+    Write-Log "Launching Codex CLI via Ollama ($model)"
+    $a = @("ollama", "launch", "codex", "--model", $model, "--")
+    if ((Get-Cfg).skipPerms) { $a += "--yolo" }
+    Write-Host "`n>>> ollama launch codex --model $model" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
-        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        $p = (Get-Command "ollama" -ErrorAction Stop).Source
+        Start-Process -FilePath $p -ArgumentList $a[1..($a.Length-1)]
         Write-Host "Launched in new window." -ForegroundColor Cyan
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Press Enter to return to menu"
+    } catch { Write-Log "  Launch error: $_"; $oa = "ollama"; $oargs = $a[1..($a.Length-1)]; try { & $oa @oargs } catch {} }
+    Read-Host "Press Enter to return"
 }
 
 function Launch-Claude {
-    $model = (Get-Config).selectedModel
-    if (-not (Start-OllamaServer)) { Read-Host "Press Enter to return"; return }
-
-    $cmdParts = @("ollama", "launch", "claude", "--model", $model, "--")
-    if ((Get-Config).skipPermissions) { $cmdParts += "--dangerously-skip-permissions" }
-    $cmdString = $cmdParts -join ' '
-    Write-Host "`n>>> $cmdString" -ForegroundColor Green
+    if (-not (Start-OllamaServer)) { Read-Host "Press Enter"; return }
+    $model = (Get-Cfg).model
+    Write-Log "Launching Claude Code via Ollama ($model)"
+    $a = @("ollama", "launch", "claude", "--model", $model, "--")
+    if ((Get-Cfg).skipPerms) { $a += "--dangerously-skip-permissions" }
+    Write-Host "`n>>> ollama launch claude --model $model" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
-        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        $p = (Get-Command "ollama" -ErrorAction Stop).Source
+        Start-Process -FilePath $p -ArgumentList $a[1..($a.Length-1)]
         Write-Host "Launched in new window." -ForegroundColor Cyan
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Press Enter to return to menu"
+    } catch { Write-Log "  Launch error: $_"; $oa = "ollama"; $oargs = $a[1..($a.Length-1)]; try { & $oa @oargs } catch {} }
+    Read-Host "Press Enter to return"
 }
 
 function Launch-CodexApp {
-    $model = (Get-Config).selectedModel
-    if (-not (Start-OllamaServer)) { Read-Host "Press Enter to return"; return }
-    if (-not (Ensure-CodexInstalled)) { return }
-
-    $cmdParts = @("ollama", "launch", "codex-app", "--model", $model)
-    $cmdString = $cmdParts -join ' '
-    Write-Host "`n>>> $cmdString" -ForegroundColor Green
+    if (-not (Start-OllamaServer)) { Read-Host "Press Enter"; return }
+    $model = (Get-Cfg).model
+    Write-Log "Launching Codex App via Ollama ($model)"
+    $a = @("ollama", "launch", "codex-app", "--model", $model)
+    Write-Host "`n>>> ollama launch codex-app --model $model" -ForegroundColor Green
     Write-Host ("-" * 50) -ForegroundColor DarkGray
     try {
-        $cmdPath = (Get-Command $cmdParts[0] -ErrorAction Stop).Source
-        $cmdArgs = $cmdParts[1..($cmdParts.Length-1)]
-        Start-Process -FilePath $cmdPath -ArgumentList $cmdArgs
+        $p = (Get-Command "ollama" -ErrorAction Stop).Source
+        Start-Process -FilePath $p -ArgumentList $a[1..($a.Length-1)]
         Write-Host "Launched in new window." -ForegroundColor Cyan
-    } catch { Write-Host "ERROR: $_" -ForegroundColor Red }
-    Read-Host "Press Enter to return to menu"
+    } catch { Write-Log "  Launch error: $_"; $oa = "ollama"; $oargs = $a[1..($a.Length-1)]; try { & $oa @oargs } catch {} }
+    Read-Host "Press Enter to return"
 }
 
-function Write-ClaudeDesktopOllamaConfig {
-    param([string]$OllamaModel)
+function Launch-ClaudeDesktop {
+    if (-not (Start-OllamaServer)) { Read-Host "Press Enter"; return }
+    Write-Log "Launching Claude Desktop via Ollama"
 
-    # Claude Desktop's gateway mode requires an Anthropic-compatible API.
-    # Ollama's native API at localhost:11434 is NOT Anthropic-compatible.
-    # You need a proxy that translates Anthropic protocol <-> Ollama protocol.
-    # Tools: ollama launch claude (CLI-only), cc-relay, cdo, llm-proxyman, etc.
-    #
-    # This config points at port 11434 — it will work if you have a proxy
-    # running there that speaks Anthropic protocol. Otherwise Claude Desktop
-    # will fail to connect or get unexpected responses.
+    Write-Host "`nPreparing Claude Desktop..." -ForegroundColor Cyan
+    Get-Process -Name "Claude" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Write-Log "  Killed existing Claude Desktop (if any)"
 
-    $gatewayConfig = [ordered]@{
+    $local   = [Environment]::GetFolderPath("LocalApplicationData")
+    $roaming = [Environment]::GetFolderPath("ApplicationData")
+    $utf8    = New-Object System.Text.UTF8Encoding $false
+    $cid     = [Guid]::NewGuid().ToString()
+
+    $gateway = [ordered]@{
         inferenceProvider          = "gateway"
         inferenceGatewayBaseUrl    = "http://127.0.0.1:11434"
         inferenceGatewayApiKey     = "ollama"
         inferenceGatewayAuthScheme = "bearer"
         inferenceModels            = @(
-            @{ name = "claude-opus-4-7";          labelOverride = "Ollama (Opus 4.7)" }
-            @{ name = "claude-sonnet-4-6";        labelOverride = "Ollama (Sonnet 4.6)" }
+            @{ name = "claude-opus-4-7";           labelOverride = "Ollama (Opus 4.7)" }
+            @{ name = "claude-sonnet-4-6";         labelOverride = "Ollama (Sonnet 4.6)" }
             @{ name = "claude-haiku-4-5-20251001"; labelOverride = "Ollama (Haiku 4.5)" }
         )
         disableEssentialTelemetry    = $true
@@ -544,453 +455,136 @@ function Write-ClaudeDesktopOllamaConfig {
         disableNonessentialServices  = $true
         unstableDisableModelVerification = $true
         builtinToolPolicy = [ordered]@{
-            Bash              = "allow"
-            Read              = "allow"
-            Write             = "allow"
-            Edit              = "allow"
-            Glob              = "allow"
-            Grep              = "allow"
-            NotebookEdit      = "allow"
-            WebFetch          = "allow"
-            WebSearch         = "allow"
-            Task              = "allow"
-            TaskCreate        = "allow"
-            TaskUpdate        = "allow"
-            TaskGet           = "allow"
-            TaskList          = "allow"
-            TaskStop          = "allow"
-            Skill             = "allow"
-            AskUserQuestion   = "allow"
-            SendUserMessage   = "allow"
+            Bash="allow";Read="allow";Write="allow";Edit="allow";Glob="allow";Grep="allow"
+            NotebookEdit="allow";WebFetch="allow";WebSearch="allow"
+            Task="allow";TaskCreate="allow";TaskUpdate="allow";TaskGet="allow";TaskList="allow";TaskStop="allow"
+            Skill="allow";AskUserQuestion="allow";SendUserMessage="allow"
         }
-        # builtinToolPolicy already auto-approves every tool regardless of
-        # the session permission mode label shown in the UI.
     }
 
-    $roaming = [Environment]::GetFolderPath("ApplicationData")
-    $local   = [Environment]::GetFolderPath("LocalApplicationData")
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-
-    # ================================================================
-    # Approach 1: configLibrary (primary — what modern Claude Desktop reads)
-    # ================================================================
-    $configId = [Guid]::NewGuid().ToString()
-    $libPaths = @(
-        (Join-Path $local "Claude-3p\configLibrary")
+    foreach ($libDir in @(
+        (Join-Path $local "Claude-3p\configLibrary"),
         (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\configLibrary")
-    )
-    foreach ($libDir in $libPaths) {
-        if (-not (Test-Path $libDir)) { New-Item -ItemType Directory -Force -Path $libDir | Out-Null }
-
-        # Clean up old UUID config files from previous runs
-        Get-ChildItem $libDir -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -ne "_meta.json" -and $_.Name -ne "$configId.json"
-        } | Remove-Item -Force
-
-        $metaPath = Join-Path $libDir "_meta.json"
-        $meta = [ordered]@{
-            appliedId = $configId
-            entries   = @(@{ id = $configId; name = "Ollama Gateway" })
-        }
-        [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 3), $utf8NoBom)
-
-        $configPath = Join-Path $libDir "$configId.json"
-        [System.IO.File]::WriteAllText($configPath, ($gatewayConfig | ConvertTo-Json -Depth 5), $utf8NoBom)
+    )) {
+        New-Item -ItemType Directory -Force -Path $libDir | Out-Null
+        Get-ChildItem $libDir -Filter "*.json" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "_meta.json" -and $_.Name -ne "$cid.json" } | Remove-Item -Force
+        $meta = [ordered]@{ appliedId = $cid; entries = @(@{ id = $cid; name = "Ollama Gateway" }) }
+        [System.IO.File]::WriteAllText((Join-Path $libDir "_meta.json"), ($meta | ConvertTo-Json -Depth 3), $utf8)
+        [System.IO.File]::WriteAllText((Join-Path $libDir "$cid.json"), ($gateway | ConvertTo-Json -Depth 5), $utf8)
     }
 
-    # ================================================================
-    # Approach 2: claude_desktop_config.json (legacy / broader compat)
-    # ================================================================
-    $enterpriseConfig = [ordered]@{}
-    foreach ($key in $gatewayConfig.Keys) {
-        if ($key -ne "unstableDisableModelVerification") {
-            $enterpriseConfig[$key] = $gatewayConfig[$key]
-        }
+    $enterprise = [ordered]@{}
+    foreach ($k in $gateway.Keys) { if ($k -ne "unstableDisableModelVerification") { $enterprise[$k] = $gateway[$k] } }
+    $json3p = ([ordered]@{ deploymentMode = "3p"; enterpriseConfig = $enterprise } | ConvertTo-Json -Depth 5)
+    foreach ($p in @(
+        (Join-Path $roaming "Claude-3p\claude_desktop_config.json"),
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\claude_desktop_config.json")
+    )) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $p -Parent) | Out-Null
+        [System.IO.File]::WriteAllText($p, $json3p, $utf8)
     }
 
-    $config3p = [ordered]@{
-        deploymentMode = "3p"
-        enterpriseConfig = $enterpriseConfig
-        preferences = [ordered]@{
-            secureVmFeaturesEnabled     = $true
-            coworkScheduledTasksEnabled = $true
-            ccdScheduledTasksEnabled    = $true
-            sidebarMode                 = "epitaxy"
-            coworkWebSearchEnabled      = $true
-        }
-    }
-    $json3p = $config3p | ConvertTo-Json -Depth 5
-    $paths3p = @(
-        (Join-Path $roaming "Claude-3p\claude_desktop_config.json")
-        (Join-Path $local   "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude-3p\claude_desktop_config.json")
-    )
-    foreach ($p in $paths3p) {
-        $dir = Split-Path $p -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-        [System.IO.File]::WriteAllText($p, $json3p, $utf8NoBom)
-    }
-
-    # Merge deployment into the main Claude config
-    $mainPaths = @(
-        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json")
-        (Join-Path $roaming "Claude\claude_desktop_config.json")
-    )
-    foreach ($p in $mainPaths) {
-        $dir = Split-Path $p -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-
-        $existing = $null
-        if (Test-Path $p) {
-            try { $existing = Get-Content $p -Raw | ConvertFrom-Json } catch { }
-        }
-        if (-not $existing) { $existing = New-Object PSObject }
-
-        $existing | Add-Member -NotePropertyName "deploymentMode" -NotePropertyValue "3p" -Force
-        $existing | Add-Member -NotePropertyName "enterpriseConfig" -NotePropertyValue $enterpriseConfig -Force
-
-        if (-not ($existing.PSObject.Properties.Name -contains "preferences")) {
-            $existing | Add-Member -NotePropertyName "preferences" -NotePropertyValue ([ordered]@{}) -Force
-        }
-        $merged = $existing | ConvertTo-Json -Depth 6
-        [System.IO.File]::WriteAllText($p, $merged, $utf8NoBom)
-    }
-
-    Write-Host "  Wrote 3p config (configLibrary + claude_desktop_config.json)" -ForegroundColor DarkGray
-}
-
-function Clear-ClaudeDesktopSession {
-    $local   = [Environment]::GetFolderPath("LocalApplicationData")
-    $base    = Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
-
-    Write-Host "Clearing any existing Claude Desktop session..." -ForegroundColor DarkGray
-
+    # Clear OAuth
+    $base = Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
     $cfgPath = Join-Path $base "config.json"
     if (Test-Path $cfgPath) {
         try {
-            $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            $claudeCfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            $keys = @("oauth:tokenCache","oauth:refreshToken","oauth:accountId","oauth:accessToken",
+                       "oauth:expiresAt","oauth:token","activeAccountId","activeOrgId",
+                       "authSession","lastSignedInAccount","oauthTokens")
             $changed = $false
-            $keysToClear = @("oauth:tokenCache", "oauth:refreshToken", "oauth:accountId",
-                             "oauth:accessToken", "oauth:expiresAt", "oauth:token",
-                             "activeAccountId", "activeOrgId", "authSession",
-                             "lastSignedInAccount", "oauthTokens")
-            foreach ($key in $keysToClear) {
-                if ($cfg.PSObject.Properties[$key]) {
-                    $cfg.PSObject.Properties.Remove($key)
-                    $changed = $true
-                }
-            }
-            if ($changed) {
-                $cfg | ConvertTo-Json -Depth 5 | Set-Content $cfgPath -Encoding UTF8
-                Write-Host "  Cleared OAuth session from config.json" -ForegroundColor DarkGray
-            }
-        } catch { }
+            foreach ($k in $keys) { if ($claudeCfg.PSObject.Properties[$k]) { $claudeCfg.PSObject.Properties.Remove($k); $changed = $true } }
+            if ($changed) { [System.IO.File]::WriteAllText($cfgPath, ($claudeCfg | ConvertTo-Json -Depth 5), $utf8) }
+        } catch {}
     }
-
-    $coworkPath = Join-Path $base "cowork-enabled-cli-ops.json"
-    if (Test-Path $coworkPath) {
-        Remove-Item $coworkPath -Force
-        Write-Host "  Removed cowork session file" -ForegroundColor DarkGray
+    foreach ($p in @(
+        (Join-Path $local "Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\developer_settings.json"),
+        (Join-Path $local "Claude\developer_settings.json"),
+        (Join-Path $roaming "Claude\developer_settings.json")
+    )) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $p -Parent) | Out-Null
+        [System.IO.File]::WriteAllText($p, '{"allowDevTools":true}', $utf8)
     }
+    Write-Log "  Wrote 3p config + dev mode"
 
-    $antDidPath = Join-Path $base "ant-did"
-    if (Test-Path $antDidPath) {
-        Remove-Item $antDidPath -Force
-        Write-Host "  Removed device identity file" -ForegroundColor DarkGray
-    }
-
-    $mainCfgPath = Join-Path $base "claude_desktop_config.json"
-    if (Test-Path $mainCfgPath) {
-        try {
-            $mainCfg = Get-Content $mainCfgPath -Raw | ConvertFrom-Json
-            $changed = $false
-            $deployKeys = @("deploymentMode", "enterpriseConfig", "deployment_mode", "enterprise_config")
-            foreach ($key in $deployKeys) {
-                if ($mainCfg.PSObject.Properties[$key]) {
-                    $mainCfg.PSObject.Properties.Remove($key)
-                    $changed = $true
-                }
-            }
-            if ($changed) {
-                $mainCfg | ConvertTo-Json -Depth 5 | Set-Content $mainCfgPath -Encoding UTF8
-                Write-Host "  Cleared prior deployment config" -ForegroundColor DarkGray
-            }
-        } catch { }
-    }
-
-    # Write bypass permission mode into the Desktop's own config.json
-    if (-not (Test-Path $cfgPath)) {
-        $cfg = New-Object PSObject
-    } else {
-        try { $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json } catch { $cfg = New-Object PSObject }
-    }
-    if (-not ($cfg.PSObject.Properties.Name -contains "allowBypassPermissionsMode")) {
-        $cfg | Add-Member -NotePropertyName "permissionMode" -NotePropertyValue "bypassPermissions" -Force
-        $cfg | Add-Member -NotePropertyName "allowBypassPermissionsMode" -NotePropertyValue $true -Force
-        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText($cfgPath, ($cfg | ConvertTo-Json -Depth 3), $utf8NoBom)
-        Write-Host "  Set permission mode to bypass" -ForegroundColor DarkGray
-    }
-}
-
-function Launch-ClaudeDesktop {
-    $model = (Get-Config).selectedModel
-    if (-not (Start-OllamaServer)) { Read-Host "Press Enter to return"; return }
-
-    $env:ANTHROPIC_BASE_URL = "http://localhost:11434"
-    $env:ANTHROPIC_CUSTOM_MODEL_OPTION = $model
-    $env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "Ollama ($model)"
-    $env:ANTHROPIC_DEFAULT_OPUS_MODEL = $model
-    $env:ANTHROPIC_DEFAULT_SONNET_MODEL = $model
-    $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = $model
-    $env:CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = "1"
-
-    Write-Host "`nLaunching Claude Code Desktop with Ollama: $model" -ForegroundColor Green
+    Write-Host "  Config written." -ForegroundColor DarkGray
     Write-Host ("-" * 50) -ForegroundColor DarkGray
-    try {
-        Start-Process "shell:appsFolder\Claude_pzs8sxrjxfjjc!Claude"
-    } catch {
-        Write-Host "ERROR: Could not launch Claude Desktop." -ForegroundColor Red
-        Write-Host "Install from: https://claude.ai/download" -ForegroundColor Yellow
-        Read-Host "Press Enter to return to menu"
-    }
-}
-
-function Ensure-CodexInstalled {
-    if (Test-CommandExists "codex") { return $true }
-    Write-Host "Codex CLI not found." -ForegroundColor Yellow
-    if (-not (Test-CommandExists "npm")) {
-        $ans = Read-Host "Node.js/npm required. Install now? (y/n)"
-        if ($ans -ne 'y') { return $false }
-        if (-not (Install-NodeJS)) { return $false }
-    }
-    Write-Host "Installing Codex CLI via npm..." -ForegroundColor Cyan
-    npm install -g @openai/codex 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "npm install failed. Try running as Administrator." -ForegroundColor Red
-        Read-Host "Press Enter to continue"
-        return $false
-    }
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    Write-Host "Codex CLI installed." -ForegroundColor Green
-    return $true
+    Write-Host "Launching Claude Desktop..." -ForegroundColor Green
+    try { Start-Process "shell:appsFolder\Claude_pzs8sxrjxfjjc!Claude"; Write-Log "  Launched Claude Desktop" }
+    catch { Write-Log "  Launch error: $_"; Write-Host "Not found. Install: https://claude.ai/download" -ForegroundColor Red }
 }
 
 # ============================================
-# Status Display
+# Menu
 # ============================================
-function Show-Status {
-    $oExists = Test-CommandExists "ollama"
-    $cCodex  = Test-CommandExists "codex"
-    $cClaude = Test-CommandExists "claude"
-    $authOk  = Test-OllamaAuth
-    $cfg     = Get-Config
-
-    Write-Host "`n========== Ollama CLI Launcher ==========" -ForegroundColor Cyan
-
-    if ($cCodex) {
-        $inst = Get-CodexInstalledVersion
-        $lat  = Get-CodexLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-            Write-Host "  Codex CLI     : v$inst (update v$lat available)" -ForegroundColor Yellow
-        } else {
-            Write-Host "  Codex CLI     : v$inst (up to date)" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "  Codex CLI     : NOT INSTALLED" -ForegroundColor DarkGray
-    }
-    if ($cClaude) {
-        $inst = Get-ClaudeInstalledVersion
-        $lat  = Get-ClaudeLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-            Write-Host "  Claude Code   : v$inst (update v$lat available)" -ForegroundColor Yellow
-        } else {
-            Write-Host "  Claude Code   : v$inst (up to date)" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "  Claude Code   : NOT INSTALLED" -ForegroundColor DarkGray
-    }
-    if ($oExists) {
-        $inst = Get-OllamaInstalledVersion
-        $lat  = Get-OllamaLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-            Write-Host "  Ollama        : v$inst (update v$lat available)" -ForegroundColor Yellow
-        } else {
-            Write-Host "  Ollama        : v$inst (up to date)" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "  Ollama        : NOT INSTALLED" -ForegroundColor Red
-    }
-    if ($authOk) {
-        Write-Host "  Ollama Auth   : OK" -ForegroundColor Green
-    } else {
-        Write-Host "  Ollama Auth   : NOT SIGNED IN" -ForegroundColor Red
-    }
-    Write-Host "  Model         : $($cfg.selectedModel) [source: $($cfg.source)]" -ForegroundColor Cyan
-    $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
-    Write-Host "  Skip-perms    : $permText" -ForegroundColor Cyan
-    $cDesktop = Test-ClaudeDesktopInstalled
-    if ($cDesktop) {
-        Write-Host "  Claude Desktop : INSTALLED" -ForegroundColor Green
-    } else {
-        Write-Host "  Claude Desktop : NOT INSTALLED" -ForegroundColor DarkGray
-    }
-    Write-Host "===========================================" -ForegroundColor Cyan
-}
-
-# ============================================
-# Main Menu
-# ============================================
-function Show-MainMenu {
+function Show-Menu {
     Clear-Host
     Show-Status
-    $oExists = Test-CommandExists "ollama"
-    $cCodex  = Test-CommandExists "codex"
-    $cClaude = Test-CommandExists "claude"
-    $cfg     = Get-Config
-
-    Write-Host "`n[1] Install / Update Ollama" -ForegroundColor White
-    if ($oExists) {
-        $inst = Get-OllamaInstalledVersion; $lat = Get-OllamaLatestVersion
-        if ($inst -and $lat -and (Compare-Versions $inst $lat)) { Write-Host "     ^^ UPDATE AVAILABLE" -ForegroundColor Yellow }
-    }
-    Write-Host "[2] Pick / Change Model  [current: $($cfg.selectedModel)]" -ForegroundColor White
-    if ($cfg.source -eq "cloud" -and $oExists) {
-        Write-Host "[3] Pull Selected Model Locally" -ForegroundColor White
-    } else {
-        Write-Host "[3] Pull Selected Model Locally [not applicable]" -ForegroundColor DarkGray
-    }
-    if ($cCodex -and $oExists) {
-        Write-Host "[4] Launch Codex CLI (via Ollama)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $oExists) { "Ollama not installed" } else { "Codex CLI not installed" }
-        Write-Host "[4] Launch Codex CLI [$reason]" -ForegroundColor DarkGray
-    }
-    if ($cClaude -and $oExists) {
-        Write-Host "[5] Launch Claude Code CLI (via Ollama)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $oExists) { "Ollama not installed" } else { "Claude Code not installed" }
-        Write-Host "[5] Launch Claude Code CLI [$reason]" -ForegroundColor DarkGray
-    }
-    if ($cCodex -and $oExists) {
-        Write-Host "[6] Launch Codex App (via Ollama)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $oExists) { "Ollama not installed" } else { "Codex CLI not installed" }
-        Write-Host "[6] Launch Codex App [$reason]" -ForegroundColor DarkGray
-    }
-    $cDesktop = Test-ClaudeDesktopInstalled
-    if ($cDesktop -and $oExists) {
-        Write-Host "[7] Launch Claude Code Desktop (via Ollama)" -ForegroundColor Green
-    } else {
-        $reason = if (-not $oExists) { "Ollama not installed" } else { "Claude Desktop not installed" }
-        Write-Host "[7] Launch Claude Desktop [$reason]" -ForegroundColor DarkGray
-    }
-    Write-Host "[8] Check / Fix Ollama Sign-in" -ForegroundColor White
-    Write-Host "[9] Clear Version Cache" -ForegroundColor White
-    $permText = if ($cfg.skipPermissions) { "ON" } else { "OFF" }
-    Write-Host "[T] Toggle Permission Bypass [currently: $permText]" -ForegroundColor White
+    $cfg = Get-Cfg
+    Write-Host ""
+    Write-Host "[1] Launch Codex CLI (via Ollama)" -ForegroundColor Green
+    Write-Host "[2] Launch Claude Code (via Ollama)" -ForegroundColor Green
+    Write-Host "[3] Launch Codex App (via Ollama)" -ForegroundColor Green
+    Write-Host "[4] Launch Claude Desktop (via Ollama)" -ForegroundColor Green
+    Write-Host "[5] Pick / Browse Models [current: $($cfg.model)]" -ForegroundColor White
+    Write-Host "[6] Check Ollama Sign-in" -ForegroundColor White
+    $perm = if ($cfg.skipPerms) { "ON" } else { "OFF" }
+    Write-Host "[T] Toggle Permissions [$perm]" -ForegroundColor White
+    Write-Host "[L] View Log" -ForegroundColor White
     Write-Host "[Q] Quit" -ForegroundColor Magenta
     Write-Host ""
 }
 
 # ============================================
-# Main
+# Run
 # ============================================
+try { Invoke-AutoUpdate } catch { Write-Log "FATAL: Auto-update crashed: $_"; Write-Host "Auto-update error (continuing anyway): $_" -ForegroundColor Red }
+
 if ($args.Count -gt 0) {
     $target = $args[0].ToLower()
-    if ($target -eq "codex") {
-        if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
-        if (-not (Start-OllamaServer)) { exit 1 }
-        Launch-Codex; exit $LASTEXITCODE
-    } elseif ($target -eq "claude") {
-        if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
-        if (-not (Start-OllamaServer)) { exit 1 }
-        Launch-Claude; exit $LASTEXITCODE
-    } elseif ($target -eq "codex-app") {
-        if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
-        if (-not (Start-OllamaServer)) { exit 1 }
-        Launch-CodexApp; exit $LASTEXITCODE
-    } elseif ($target -eq "claude-desktop") {
-        if (-not (Test-CommandExists "ollama")) { Write-Host "Ollama not found. Installing..." -ForegroundColor Yellow; Install-Ollama }
-        if (-not (Start-OllamaServer)) { exit 1 }
-        Launch-ClaudeDesktop; exit $LASTEXITCODE
+    if (-not (Has "ollama")) { Write-Host "Ollama not found. Run without args to auto-install." -ForegroundColor Red; exit 1 }
+    if (-not (Start-OllamaServer)) { exit 1 }
+    Write-Log "Direct launch: $target"
+    switch ($target) {
+        "codex"          { Launch-Codex }
+        "claude"         { Launch-Claude }
+        "codex-app"      { Launch-CodexApp }
+        "claude-desktop" { Launch-ClaudeDesktop }
+        default { Write-Host "Usage: Ollama-Launcher.bat [codex|claude|codex-app|claude-desktop]"; exit 1 }
     }
+    exit 0
 }
 
 while ($true) {
-    Show-MainMenu
-    $choice = Read-Host "Enter choice"
-    $cfg = Get-Config
+    Show-Menu
+    $choice = Read-Host "Choice"
+    Write-Log "Menu choice: $choice"
     switch ($choice.ToLower()) {
-        "1" {
-            if (Test-CommandExists "ollama") {
-                $inst = Get-OllamaInstalledVersion; $lat = Get-OllamaLatestVersion
-                if ($inst -and $lat -and (Compare-Versions $inst $lat)) {
-                    Write-Host "Ollama update: v$inst -> v$lat" -ForegroundColor Yellow
-                    $ans = Read-Host "Update now? (y/n)"
-                    if ($ans -eq 'y') { Install-Ollama }
-                } else {
-                    $ans = Read-Host "Ollama is up to date. Reinstall? (y/n)"
-                    if ($ans -eq 'y') { Install-Ollama }
-                }
-            } else {
-                $ans = Read-Host "Install Ollama now? (y/n)"
-                if ($ans -eq 'y') { Install-Ollama }
-            }
-            Read-Host "Press Enter to continue"
-        }
-        "2" { Show-ModelPicker }
-        "3" {
-            if ($cfg.source -eq "cloud" -and (Test-CommandExists "ollama")) { Pull-SelectedModel }
-            else { Write-Host "Only available with cloud models and Ollama installed." -ForegroundColor Yellow; Read-Host "Press Enter to continue" }
-        }
-        "4" {
-            if (-not (Test-CommandExists "ollama")) {
-                Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-Codex }
-        }
-        "5" {
-            if (-not (Test-CommandExists "ollama")) {
-                Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-Claude }
-        }
+        "1" { try { Launch-Codex } catch { Write-Log "Launch-Codex crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" } }
+        "2" { try { Launch-Claude } catch { Write-Log "Launch-Claude crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" } }
+        "3" { try { Launch-CodexApp } catch { Write-Log "Launch-CodexApp crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" } }
+        "4" { try { Launch-ClaudeDesktop } catch { Write-Log "Launch-ClaudeDesktop crashed: $_"; Write-Host "Error: $_" -ForegroundColor Red; Read-Host "Press Enter" } }
+        "5" { Show-ModelPicker }
         "6" {
-            if (-not (Test-CommandExists "ollama")) {
-                Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } elseif (-not (Test-CommandExists "codex")) {
-                Write-Host "Codex CLI not installed (needed for Codex App)." -ForegroundColor Red
-                $ans = Read-Host "Install now? (y/n)"
-                if ($ans -eq 'y') { Ensure-CodexInstalled | Out-Null }
-                Read-Host "Press Enter to continue"
-            } else { Launch-CodexApp }
+            Write-Host "Checking Ollama sign-in..." -ForegroundColor Cyan
+            if (Has "ollama") {
+                try { ollama list 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { Write-Host "Signed in." -ForegroundColor Green } else { Write-Host "Not signed in." -ForegroundColor Yellow; $ans = Read-Host "Run 'ollama signin'? (y/n)"; if ($ans -eq 'y') { ollama signin } } }
+                catch { Write-Host "Error." -ForegroundColor Red }
+            } else { Write-Host "Ollama not installed." -ForegroundColor Red }
+            Read-Host "Press Enter"
         }
-        "7" {
-            if (-not (Test-CommandExists "ollama")) {
-                Write-Host "Ollama not installed. Use option 1 first." -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } elseif (-not (Test-ClaudeDesktopInstalled)) {
-                Write-Host "Claude Desktop not installed. Install from https://claude.ai/download" -ForegroundColor Red
-                Read-Host "Press Enter to continue"
-            } else { Launch-ClaudeDesktop }
+        "t" { $c = Get-Cfg; $c.skipPerms = -not $c.skipPerms; Save-Cfg $c; Write-Log "Permissions toggled: $($c.skipPerms)" }
+        "l" {
+            Clear-Host
+            Write-Host "========== Log File ==========" -ForegroundColor Cyan
+            Write-Host "Path: $script:LogPath" -ForegroundColor DarkGray
+            Write-Host ""
+            if (Test-Path $script:LogPath) { Get-Content $script:LogPath -Tail 40 } else { Write-Host "No log file yet." -ForegroundColor Yellow }
+            Write-Host ""; Read-Host "Press Enter to return"
         }
-        "8" { Check-OllamaSignin }
-        "9" {
-            $cache = Get-VersionCache
-            $cache.codexLastChecked = ""; $cache.claudeLastChecked = ""; $cache.ollamaLastChecked = ""; $cache.approvedLastChecked = ""
-            Save-VersionCache $cache
-            Write-Host "Version cache cleared." -ForegroundColor Green; Start-Sleep -Seconds 1
-        }
-        "t" {
-            $cfg = Get-Config
-            $cfg.skipPermissions = -not $cfg.skipPermissions
-            Save-Config $cfg
-            $text = if ($cfg.skipPermissions) { "SKIP-PERMISSIONS" } else { "NORMAL" }
-            Write-Host "Mode: $text" -ForegroundColor Green
-            Start-Sleep -Seconds 1
-        }
-        "q" { Write-Host "Goodbye!" -ForegroundColor Green; exit 0 }
-        default { Write-Host "Invalid choice." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        "q" { Write-Host "Bye!" -ForegroundColor Green; Write-Log "User quit"; exit 0 }
+        default { Write-Host "Invalid." -ForegroundColor Red; Start-Sleep -Seconds 1 }
     }
 }
